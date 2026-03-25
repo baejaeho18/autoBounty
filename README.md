@@ -31,10 +31,17 @@ Google OSS VRP 대상 레포지토리에서 ReDoS(Regular Expression Denial of S
 # 1. 레포 목록 가져오기 + 전체 파이프라인 실행
 bash scripts/track4_redos.sh
 
-# 2. 결과 확인
-python3 scripts/review.py
-python3 scripts/review.py --show 0
-python3 scripts/review.py --stats
+# 2. 진행 상황 확인 (스캔 중에도 실행 가능)
+python3 scripts/status.py              # 전체 진행률
+python3 scripts/status.py --detail     # 프로젝트별 현황 테이블
+python3 scripts/status.py --findings   # 발견사항 + 리포트 위치 + 검증 방법
+python3 scripts/status.py -p angular_angular  # 특정 프로젝트 상세
+
+# 3. 발견사항 검토
+python3 scripts/review.py             # 대기 중인 건 목록
+python3 scripts/review.py --show 0    # 상세 보기
+python3 scripts/review.py --verify 0  # 수동 검증 완료 처리
+python3 scripts/review.py --stats     # 전체 통계
 
 # 매일 자동 실행 (cron)
 bash scripts/orchestrator.sh
