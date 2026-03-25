@@ -1,0 +1,40 @@
+{
+  "general": {
+    "base_dir": "$HOME/bounty-autopilot",
+    "findings_db": "$HOME/bounty-autopilot/data/findings.json",
+    "log_dir": "$HOME/bounty-autopilot/logs",
+    "notification": {
+      "discord_webhook": "YOUR_DISCORD_WEBHOOK_URL",
+      "notify_on": ["high", "critical"]
+    },
+    "rate_limit": {
+      "requests_per_second": 1,
+      "pause_between_targets_sec": 300
+    }
+  },
+
+  "track1_idor": {
+    "enabled": true,
+    "schedule": "daily",
+    "targets_file": "$HOME/bounty-autopilot/data/targets_idor.json",
+    "tools": ["subfinder", "httpx", "katana"],
+    "auto_phases": ["recon", "endpoint_extract", "idor_candidates", "draft_report"],
+    "human_phases": ["manual_verify", "submit_report"]
+  },
+
+  "track2_oss": {
+    "enabled": true,
+    "schedule": "weekly",
+    "targets_file": "$HOME/bounty-autopilot/data/targets_oss.json",
+    "auto_phases": ["clone_update", "security_review", "semgrep_scan", "dependency_audit", "deep_analysis", "draft_report"],
+    "human_phases": ["verify_poc", "submit_disclosure"]
+  },
+
+  "track3_web3": {
+    "enabled": true,
+    "schedule": "weekly",
+    "targets_file": "$HOME/bounty-autopilot/data/targets_web3.json",
+    "auto_phases": ["clone_update", "slither_scan", "claude_audit", "poc_generation", "draft_report"],
+    "human_phases": ["verify_poc", "submit_immunefi"]
+  }
+}
