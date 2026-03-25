@@ -9,7 +9,8 @@
 """
 import json, os, argparse
 
-BASE = os.path.expanduser("~/bounty-autopilot/data")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.join(os.path.dirname(SCRIPT_DIR), "data")
 
 def add_idor(args):
     path = f"{BASE}/targets_idor.json"

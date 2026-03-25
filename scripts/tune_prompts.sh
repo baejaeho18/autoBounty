@@ -6,7 +6,8 @@
 # ============================================================
 set -euo pipefail
 
-BASE="$HOME/bounty-autopilot"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="$(dirname "$SCRIPT_DIR")"
 DATE=$(date +%Y-%m-%d)
 
 log() { echo "[TUNE $(date '+%H:%M:%S')] $1"; }

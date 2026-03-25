@@ -5,9 +5,10 @@
 import json, os, urllib.request
 from datetime import datetime
 
-BASE = os.path.expanduser("~/bounty-autopilot")
-DB_PATH = f"{BASE}/data/findings.json"
-CONFIG_PATH = f"{BASE}/config.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(SCRIPT_DIR)
+DB_PATH = os.path.join(BASE, "data", "findings.json")
+CONFIG_PATH = os.path.join(BASE, "config.json")
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
 def load_json(path):
