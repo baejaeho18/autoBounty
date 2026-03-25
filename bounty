@@ -24,6 +24,26 @@ DB="$BASE/data/findings.json"
 
 RED='\033[91m'; YEL='\033[93m'; GRN='\033[92m'; CYN='\033[96m'; DIM='\033[2m'; BOLD='\033[1m'; RST='\033[0m'
 
+# 오늘 실행 이력이 없으면 즉시 실행 제안
+_prompt_first_run() {
+  # 오늘 orchestrator 로그가 있으면 이미 실행된 것
+  if [[ -f "$LOG_DIR/$DATE-orchestrator.log" ]]; then
+    return
+  fi
+  echo ""
+  echo -e "  ${YEL}오늘 아직 파이프라인이 실행되지 않았습니다.${RST}"
+  read -rp "  지금 바로 실행할까요? (Y/n): " answer
+  answer="${answer:-Y}"
+  if [[ "$answer" =~ ^[Yy]$ ]]; then
+    echo -e "  ${BOLD}▶ 파이프라인 실행 시작${RST}"
+    bash "$BASE/scripts/orchestrator.sh" &
+    PID=$!
+    echo -e "  PID: $PID"
+    echo -e "  로그: ${DIM}tail -f $LOG_DIR/$DATE-orchestrator.log${RST}"
+    echo -e "  완료되면 ${CYN}./bounty status${RST} 로 확인"
+  fi
+}
+
 cmd="${1:-help}"
 arg="${2:-}"
 
@@ -238,18 +258,21 @@ PYEOF
     DOMAIN="${2:-}"; PROGRAM="${3:-}"
     [[ -z "$DOMAIN" ]] && { echo "사용법: ./bounty add-idor [domain] [program_url]"; exit 1; }
     python3 "$BASE/scripts/add_target.py" idor --domain "$DOMAIN" --program "$PROGRAM"
+    _prompt_first_run
     ;;
 
   add-oss)
     REPO="${2:-}"; NAME="${3:-}"; LANG="${4:-}"
     [[ -z "$REPO" ]] && { echo "사용법: ./bounty add-oss [repo_url] [name] [lang]"; exit 1; }
     python3 "$BASE/scripts/add_target.py" oss --repo "$REPO" ${NAME:+--name "$NAME"} ${LANG:+--lang "$LANG"}
+    _prompt_first_run
     ;;
 
   add-web3)
     REPO="${2:-}"; NAME="${3:-}"
     [[ -z "$REPO" ]] && { echo "사용법: ./bounty add-web3 [repo_url] [name]"; exit 1; }
     python3 "$BASE/scripts/add_target.py" web3 --repo "$REPO" ${NAME:+--name "$NAME"}
+    _prompt_first_run
     ;;
 
   # ── 도움말 ──
