@@ -5,27 +5,31 @@ Google OSS VRP 대상 레포지토리에서 ReDoS(Regular Expression Denial of S
 ## 파이프라인
 
 ```
-레포 목록 가져오기 (Google Bug Hunters)
-        ↓
-  각 레포 Clone/Pull
-        ↓
-  정적 ReDoS 분석 (redos_scanner.py)
-  - 중첩 수량자: (a+)+
-  - 겹치는 대안: (\d|\w)+
-  - Star height ≥ 2: (.*)*
-  - 경험적 백트래킹 검증
-        ↓
-  LLM 정밀 분석 (TP/FP 판별)
-  - 외부 입력 도달 여부 추적
-  - RE2 사용 여부 확인
-  - 입력 길이 제한 확인
-        ↓
-  리포트 생성 (CWE-1333)
-        ↓
-  자동 commit & push → Discord 알림
-  (리포트 요약 + 취약 파일 GitHub 링크)
-        ↓
-  ⏳ 수동 검증 (review.py)
+═══ Pass 1: 정적 분석 (LLM 불필요, 전체 실행) ═══
+
+  레포 목록 가져오기 (Google Bug Hunters)
+          ↓
+    65개 레포 Clone/Pull
+          ↓
+    정적 ReDoS 분석 (redos_scanner.py)
+    - 중첩 수량자: (a+)+
+    - 겹치는 대안: (\d|\w)+
+    - Star height ≥ 2: (.*)*
+    - 경험적 백트래킹 검증
+          ↓
+    CRITICAL/HIGH 발견 레포 → LLM 대기열에 등록
+
+═══ Pass 2: LLM 정밀 분석 (토큰 소진 시 대기 후 재시도) ═══
+
+    LLM 정밀 분석 (TP/FP 판별)
+    - 외부 입력 도달 여부 추적
+    - RE2 사용 여부 확인
+    - 입력 길이 제한 확인
+          ↓
+    ❌ 토큰 소진? → 리셋 시간까지 대기 → 재시도
+    ✅ 성공? → 리포트 생성 → commit & push → Discord 알림
+          ↓
+    ⏳ 수동 검증 (review.py)
 ```
 
 ## 빠른 시작
@@ -48,6 +52,20 @@ python3 scripts/review.py --stats     # 전체 통계
 
 # 매일 자동 실행 (cron)
 bash scripts/orchestrator.sh
+```
+
+## 토큰 소진 대응
+
+LLM (Claude) 질의 중 토큰 한도에 도달하면:
+1. 정적 분석은 이미 전부 완료된 상태 (Pass 1)
+2. 현재까지 완료된 LLM 분석 결과는 보존
+3. 토큰 리셋 시간(기본 60분)까지 자동 대기
+4. 리셋 후 미완료 프로젝트부터 자동 재시도 (최대 5회)
+
+환경변수로 조정 가능:
+```bash
+TOKEN_RESET_WAIT_MIN=60  # 리셋 대기 시간 (분)
+MAX_LLM_RETRIES=5        # 최대 재시도 횟수
 ```
 
 ## Discord 알림
