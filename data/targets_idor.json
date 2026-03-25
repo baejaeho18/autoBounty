@@ -1,14 +1,107 @@
 [
   {
-    "name": "example-saas",
-    "domain": "api.example.com",
-    "program_url": "https://hackerone.com/example",
-    "scope": ["*.api.example.com", "app.example.com"],
-    "out_of_scope": ["blog.example.com"],
+    "name": "OpenAI",
+    "domain": "chat.openai.com / api.openai.com",
+    "program_url": "https://bugcrowd.com/openai",
+    "scope": [
+      "*.chat.openai.com / api.openai.com",
+      "chat.openai.com / api.openai.com"
+    ],
+    "out_of_scope": [],
     "auth": {
-      "user_a_token": "ENV:TARGET1_TOKEN_A",
-      "user_b_token": "ENV:TARGET1_TOKEN_B"
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
     },
-    "notes": "SaaS 프로그램, API 엔드포인트 중심 테스트"
+    "notes": "ChatGPT, OpenAI API, 기업 인프라 포함. 2025년 3월 최대 바운티 $20K→$100K로 확대 (IDOR 특별 프로모션). 무료 ChatGPT 계정으로 테스트 가능. 모델 프롬프트/응답 내용 자체는 아웃오브스코프."
+  },
+  {
+    "name": "Atlassian",
+    "domain": "*.atlassian.com / mcp.atlassian.com",
+    "program_url": "https://bugcrowd.com/atlassian",
+    "scope": [
+      "*.*.atlassian.com / mcp.atlassian.com",
+      "*.atlassian.com / mcp.atlassian.com"
+    ],
+    "out_of_scope": [],
+    "auth": {
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
+    },
+    "notes": "GraphQL API 및 REST API 포함. Jira/Confluence/Trello 무료 플랜으로 가입 가능. 스코프 내 MCP(Model Context Protocol) 엔드포인트도 포함 — AI 연동 확장으로 최근 스코프 확대 추정."
+  },
+  {
+    "name": "Aiven Managed Bug Bounty",
+    "domain": "api.aiven.io",
+    "program_url": "https://bugcrowd.com/engagements/aiven-mbb-og",
+    "scope": [
+      "*.api.aiven.io",
+      "api.aiven.io"
+    ],
+    "out_of_scope": [],
+    "auth": {
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
+    },
+    "notes": "클라우드 관리형 데이터 서비스 SaaS (Kafka, PostgreSQL 등). api.aiven.io/login 포함. 무료 트라이얼 제공. HackerOne에도 별도 프로그램 존재 (hackerone.com/aiven_ltd)."
+  },
+  {
+    "name": "Afterpay Bug Bounty Program",
+    "domain": "mobileapi.afterpay.com / api.clearpay.com",
+    "program_url": "https://bugcrowd.com/engagements/afterpay",
+    "scope": [
+      "*.mobileapi.afterpay.com / api.clearpay.com",
+      "mobileapi.afterpay.com / api.clearpay.com"
+    ],
+    "out_of_scope": [],
+    "auth": {
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
+    },
+    "notes": "BNPL(선구매 후결제) SaaS. mobileapi.afterpay.com, portalapi.us.afterpay.com, mobileapi.clearpay.com, api.clearpay.com 등 다수 API 도메인 인스코프. 소비자 앱 무료 가입 가능."
+  },
+  {
+    "name": "CoinDesk Data (CCData)",
+    "domain": "data-api.coindesk.com / tools-api.cryptocompare.com",
+    "program_url": "https://bugcrowd.com/engagements/CCData-mbb-og",
+    "scope": [
+      "*.data-api.coindesk.com / tools-api.cryptocompare.com",
+      "data-api.coindesk.com / tools-api.cryptocompare.com"
+    ],
+    "out_of_scope": [],
+    "auth": {
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
+    },
+    "notes": "크립토 데이터 SaaS. data-api.coindesk.com, tools-api.cryptocompare.com 포함. API 무료 티어로 가입 가능. 데이터 API 엔드포인트가 핵심 스코프."
+  },
+  {
+    "name": "AnyTask Freelancer Platform",
+    "domain": "api.anytask.com",
+    "program_url": "https://bugcrowd.com/engagements/anytask-mbb-og",
+    "scope": [
+      "*.api.anytask.com",
+      "api.anytask.com"
+    ],
+    "out_of_scope": [],
+    "auth": {
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
+    },
+    "notes": "프리랜서 마켓플레이스 SaaS. api.anytask.com, api.anytask.thesecurityteam.rocks 포함. 무료 계정 가입 가능."
+  },
+  {
+    "name": "Neon (Serverless Postgres)",
+    "domain": "neon.tech",
+    "program_url": "https://hackerone.com/neon_bbp",
+    "scope": [
+      "*.neon.tech",
+      "neon.tech"
+    ],
+    "out_of_scope": [],
+    "auth": {
+      "user_a_token": "ENV:TOKEN_A",
+      "user_b_token": "ENV:TOKEN_B"
+    },
+    "notes": "서버리스 PostgreSQL SaaS. 인증/데이터 보호/API 보안이 핵심 스코프. 스테이징+프로덕션 환경 모두 허용. 무료 티어 있음. 2024년 11월 BBP 시작 → 2025년 3월 퍼블릭 전환. 최근 3개월 기준으로는 경계선에 해당."
   }
 ]

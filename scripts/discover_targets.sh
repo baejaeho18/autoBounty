@@ -15,7 +15,7 @@ log() { echo "[DISCOVER $(date '+%H:%M:%S')] $1"; }
 log "새 타겟 탐색 시작"
 
 # ─── HackerOne 신규 프로그램 탐색 (Claude 활용) ───
-claude -p "
+claude --allowedTools "WebSearch,WebFetch" -p "
 HackerOne와 Bugcrowd에서 최근 등록된 버그 바운티 프로그램 중
 다음 조건에 맞는 프로그램을 웹 검색으로 찾아줘:
 
@@ -43,7 +43,7 @@ HackerOne와 Bugcrowd에서 최근 등록된 버그 바운티 프로그램 중
 " > "$BASE/data/discovered_${DATE}.json" 2>/dev/null || true
 
 # ─── Immunefi 신규 Web3 프로그램 탐색 ───
-claude -p "
+claude --allowedTools "WebSearch,WebFetch" -p "
 Immunefi에서 최근 등록된 스마트 컨트랙트 버그 바운티 중
 다음 조건에 맞는 프로그램을 찾아줘:
 
@@ -72,7 +72,7 @@ JSON으로만 출력:
 " >> "$BASE/data/discovered_${DATE}.json" 2>/dev/null || true
 
 # ─── GitHub 신규 오픈소스 타겟 탐색 ───
-claude -p "
+claude --allowedTools "WebSearch,WebFetch" -p "
 GitHub에서 버그 바운티/보안 감사 대상으로 적합한
 오픈소스 웹 프로젝트를 찾아줘:
 
@@ -101,4 +101,6 @@ JSON으로만 출력:
 " >> "$BASE/data/discovered_${DATE}.json" 2>/dev/null || true
 
 log "탐색 완료 → $BASE/data/discovered_${DATE}.json"
-log "리뷰 후 add_target.py로 등록하세요"
+
+# 기준 충족 타겟 자동 등록
+python3 "$SCRIPT_DIR/auto_register_targets.py" "$BASE/data/discovered_${DATE}.json"

@@ -1,0 +1,23 @@
+**🎯 Bounty Autopilot 일일 리포트 (2026-03-25)**
+
+📌 **오늘 새 발견: 8건**
+  🟠 [oss] Logto — yaml.github-actions.security.run-shell-injection.run-shell-injection
+  🟠 [oss] Logto — yaml.github-actions.security.run-shell-injection.run-shell-injection
+  🔴 [oss] Logto — Arbitrary Code Execution via VM Sandbox Escape
+  🟠 [oss] Logto — SSRF via Unvalidated S3 Endpoint + Public ACL Hardcoding
+  🟠 [oss] Logto — CORS Policy Bypass via Path Prefix Wildcard
+  🟠 [oss] Logto — Tenant Isolation Bypass via Dynamic Regex
+  🟠 [oss] Logto — Insecure File Upload - Path Traversal via Original Filename
+  🟠 [web3] Notional Exponent — Oracle Staleness — Chainlink 가격 최신성 미검증
+
+⏳ **검증 대기 중: 8건**
+  - [oss] Logto (2026-03-25)
+  - [oss] Logto (2026-03-25)
+  - [oss] Logto (2026-03-25)
+  - [oss] Logto (2026-03-25)
+  - [oss] Logto (2026-03-25)
+  ... 외 3건
+
+📊 **누적**: 총 8 | 대기 8 | 제출 0 | 보상 0
+
+📝 **리포트 확인**: `ls ~/bounty-autopilot/data/track*/reports/*2026-03-25*`

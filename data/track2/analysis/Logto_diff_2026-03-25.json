@@ -1,0 +1,106 @@
+{
+  "project": "Logto",
+  "date": "2026-03-25",
+  "diff_findings": [
+    {
+      "type": "Arbitrary Code Execution via VM Sandbox Escape",
+      "severity": "CRITICAL",
+      "file": "packages/core/src/utils/custom-jwt/local-vm.ts:35-64",
+      "introduced_in": "initial audit",
+      "description": "runScriptFunctionInLocalVm() 함수가 Node.js vm 모듈의 runInNewContext()로 관리자가 제공한 스크립트를 실행함. 컨텍스트를 freeze하고 fetch만 노출하지만, payload 객체가 VM 컨텍스트에 그대로 전달되어 프로토타입 체인 공격 가능. fetch 접근으로 SSRF 공격도 가능.",
+      "vulnerable_code": "const customFunction: unknown = runInNewContext(script + `;${functionName};`, globalContext);\nconst result: unknown = await runInNewContext('(async () => customFunction(payload))();', Object.freeze({ customFunction, payload }), { timeout: 3000 });",
+      "poc_scenario": "1) Admin이 커스텀 JWT 클레임 훅에 악성 스크립트 등록\n2) 스크립트에서 fetch()로 http://169.254.169.254/latest/meta-data/ 호출하여 AWS 자격증명 탈취\n3) payload 객체를 통한 프로토타입 오염으로 VM 탈출 시도\n4) 3초 타임아웃 내에서도 DoS 유발 가능",
+      "fix_suggestion": "runInNewContext 대신 완전히 격리된 Worker Thread나 별도 sandboxed 프로세스 사용. fetch를 화이트리스트 URL만 허용하는 래퍼로 교체. payload는 직렬화 후 전달하여 프로토타입 체인 분리."
+    },
+    {
+      "type": "SSRF via Unvalidated S3 Endpoint + Public ACL Hardcoding",
+      "severity": "HIGH",
+      "file": "packages/core/src/utils/storage/s3-storage.ts:47-72",
+      "introduced_in": "initial audit",
+      "description": "S3 업로드 시 ACL이 'public-read'로 하드코딩되어 모든 업로드 파일이 공개됨. endpoint 파라미터를 검증 없이 URL에 직접 연결하여 관리자가 http://169.254.169.254/ 같은 내부 주소를 endpoint로 설정하면 SSRF 발생.",
+      "vulnerable_code": "ACL: 'public-read',  // 모든 파일 공개\n...\nreturn { url: `${endpoint}/${bucket}/${objectKey}` };  // endpoint 미검증",
+      "poc_scenario": "1) 관리자 권한으로 스토리지 provider 설정에서 endpoint를 http://169.254.169.254 로 설정\n2) 파일 업로드 트리거 시 내부 AWS 메타데이터 서비스에 요청 발생\n3) 응답에서 IAM 자격증명 노출",
+      "fix_suggestion": "ACL을 'private'으로 변경하고 presigned URL 사용. endpoint는 URL 파싱 후 허용된 호스트/프로토콜 화이트리스트 검증. RFC 1918 및 링크로컬 주소 차단."
+    },
+    {
+      "type": "CORS Policy Bypass via Path Prefix Wildcard",
+      "severity": "HIGH",
+      "file": "packages/core/src/middleware/koa-cors.ts:81-119",
+      "introduced_in": "initial audit",
+      "description": "allowedPrefixes 배열에 포함된 경로는 모든 Origin에서 접근 허용됨 (return origin ?? '*'). exposeHeaders: '*' 설정으로 모든 응답 헤더가 크로스오리진에 노출됨. 비프로덕션 환경에서는 모든 Origin 허용.",
+      "vulnerable_code": "if (allowedPrefixes.some((prefix) => path.startsWith(prefix))) {\n  return origin ?? '*';  // 모든 Origin 허용\n}\n...\nexposeHeaders: '*',  // 전체 헤더 노출",
+      "poc_scenario": "1) /account 또는 /verification이 allowedPrefixes에 포함된 경우\n2) 공격자 사이트에서 fetch('https://target.logto.app/account', {credentials:'include'}) 호출\n3) CORS 헤더 포함 응답에서 인증 토큰 등 민감 정보 탈취",
+      "fix_suggestion": "allowedPrefixes 제거 또는 완전히 검증된 화이트리스트로 대체. exposeHeaders를 필요한 헤더만 명시적으로 지정. 비프로덕션 환경에서도 Origin 검증 적용."
+    },
+    {
+      "type": "Tenant Isolation Bypass via Dynamic Regex",
+      "severity": "HIGH",
+      "file": "packages/core/src/utils/tenant.ts:23-34",
+      "introduced_in": "initial audit",
+      "description": "matchDomainBasedTenantId()에서 URL 패턴의 '*'를 ([^.]*) 정규식으로 교체해 동적 정규식 생성. 패턴 자체가 사용자 제어 데이터에서 파생되면 ReDoS 또는 테넌트 경계 우회 가능. 매칭된 테넌트 ID의 유효성을 별도로 검증하지 않음.",
+      "vulnerable_code": "const toMatch = pattern.hostname.replace('*', '([^.]*)');\nconst matchedId = new RegExp(toMatch).exec(url.hostname)?.[1];",
+      "poc_scenario": "1) 멀티테넌트 환경에서 패턴이 *.example.com인 경우\n2) 공격자가 crafted 서브도메인으로 요청 전송\n3) 불충분한 정규식으로 인해 의도하지 않은 테넌트 ID 매칭\n4) 다른 테넌트의 데이터에 접근",
+      "fix_suggestion": "동적 정규식 대신 명시적 도메인 파싱 사용. 추출된 테넌트 ID는 DB에서 존재 여부 검증. 패턴 매칭 전 입력값 이스케이프."
+    },
+    {
+      "type": "Insecure File Upload - Path Traversal via Original Filename",
+      "severity": "HIGH",
+      "file": "packages/core/src/routes/user-assets.ts:51-104",
+      "introduced_in": "initial audit",
+      "description": "파일 업로드 시 file.originalFilename을 그대로 objectKey 경로에 포함. MIME 타입만 검증하고 실제 파일 내용(magic number) 검증 없음. ../를 포함한 파일명으로 S3 키 경로 조작 가능.",
+      "vulnerable_code": "const objectKey = `${tenantId}/${userId}/${format(new Date(), 'yyyy/MM/dd')}/${generateStandardId(8)}/${file.originalFilename}`;\n// MIME 검증만: allowUploadMimeTypes.map(String).includes(file.mimetype)",
+      "poc_scenario": "1) 파일명을 '../../../etc/passwd' 또는 '../admin/config.json'으로 설정\n2) Content-Type을 image/jpeg로 스푸핑하여 실제 스크립트 파일 업로드\n3) S3 키 경로가 의도한 디렉토리 밖으로 벗어나 다른 테넌트 파일 덮어쓰기",
+      "fix_suggestion": "path.basename()으로 파일명에서 디렉토리 구분자 제거. 파일 확장자와 magic number 모두 검증. 원본 파일명 대신 generateStandardId로 생성한 이름 사용."
+    },
+    {
+      "type": "Webhook SSRF - No Internal IP Restriction",
+      "severity": "MEDIUM",
+      "file": "packages/core/src/libraries/hook/utils.ts:32-49",
+      "introduced_in": "initial audit",
+      "description": "sendWebhookRequest()에서 webhookConfig.url을 검증 없이 HTTP 요청 대상으로 사용. 관리자가 내부 서비스 주소(169.254.169.254, localhost, 10.x.x.x)를 webhook URL로 설정하면 내부 네트워크 스캔 및 메타데이터 서비스 접근 가능.",
+      "vulnerable_code": "return ky.post(url, {\n  headers: { ...headers, ...conditional(signingKey && { 'logto-signature-sha-256': sign(signingKey, payload) }) },\n  json: payload,\n  retry: { limit: retries ?? 3 },\n  timeout: 10_000,\n});",
+      "poc_scenario": "1) 관리자가 webhook URL을 http://169.254.169.254/latest/meta-data/ 설정\n2) 이벤트 트리거 시 서버에서 AWS 메타데이터 서비스로 POST 요청\n3) retry: 3으로 3번 반복 시도, 응답이 webhook 로그에 기록되면 자격증명 노출",
+      "fix_suggestion": "webhook URL에 대해 DNS 해석 후 RFC 1918, 링크로컬, loopback 주소 차단. 허용 프로토콜을 https만으로 제한. signingKey 없으면 webhook 전송 거부."
+    },
+    {
+      "type": "Authentication Bypass via Development User Header",
+      "severity": "MEDIUM",
+      "file": "packages/core/src/middleware/koa-auth/index.ts:26-40",
+      "introduced_in": "initial audit",
+      "description": "비프로덕션 환경에서 development-user-id 헤더를 통해 JWT 검증 완전 우회. 해당 사용자에게 defaultManagementApi의 모든 스코프 자동 부여. 환경 변수 설정 오류 시 프로덕션에서도 노출될 위험.",
+      "vulnerable_code": "const userId = request.headers['development-user-id']?.toString() ?? developmentUserId;\nif ((!isProduction || isIntegrationTest) && userId) {\n  return { sub: userId, clientId: undefined, scopes: defaultManagementApi.scopes.map(({ name }) => name) };\n}",
+      "poc_scenario": "1) NODE_ENV=development 또는 isProduction=false 상태로 배포된 서버\n2) curl -H 'development-user-id: admin-user-id' https://api.example.com/api/users\n3) JWT 없이 전체 Management API 접근 획득",
+      "fix_suggestion": "isProduction 플래그를 빌드 타임에 고정. 개발용 bypass는 별도 설정 파일로 분리하고 프로덕션 빌드에서 완전히 제거. 통합 테스트에는 실제 JWT 토큰 발급하여 사용."
+    },
+    {
+      "type": "Zip Bomb / Path Traversal in ZIP Extraction",
+      "severity": "MEDIUM",
+      "file": "packages/core/src/routes/sign-in-experience/custom-ui-assets/index.ts:70-99",
+      "introduced_in": "initial audit",
+      "description": "커스텀 UI 에셋을 ZIP 파일로 업로드하면 Azure Function이 자동 압축 해제. 업로드 전 압축 해제 크기 검증 없음. ZIP 내 파일명의 경로 순회 문자('../') 검증을 Azure Function에 위임하며 그 구현을 확인할 수 없음.",
+      "vulnerable_code": "await uploadFile(await readFile(file.filepath), objectKey, { contentType: file.mimetype });\n// Azure Function이 blob trigger로 자동 압축 해제 - 로컬 검증 없음",
+      "poc_scenario": "1) 압축률 1000:1의 zip bomb (42KB → 42GB) 생성\n2) /api/sign-in-exp/default/custom-ui-assets에 업로드\n3) Azure Function에서 압축 해제 시 디스크 소진, DoS 발생\n4) ../../../ 포함된 파일명으로 의도치 않은 경로에 파일 배포",
+      "fix_suggestion": "업로드 전 ZIP 파일 헤더에서 압축 해제 크기 추출 후 상한선(예: 100MB) 검증. Azure Function에서도 각 파일 경로를 path.normalize로 정규화 후 허용 디렉토리 내인지 확인. 개별 파일 크기도 제한."
+    },
+    {
+      "type": "JWT Scope Overprivilege - Coarse-Grained Access Control",
+      "severity": "MEDIUM",
+      "file": "packages/core/src/middleware/koa-auth/index.ts:72,110-112",
+      "introduced_in": "initial audit",
+      "description": "스코프 검증이 PredefinedScope.All('all') 포함 여부만 확인. 리소스 유형별 세분화된 권한 검사 없음. 'all' 스코프를 가진 토큰은 전체 Management API에 무제한 접근 가능.",
+      "vulnerable_code": "return { sub, clientId, scopes: z.string().parse(scope).split(' ') };\n...\nassertThat(scopes.includes(PredefinedScope.All), new RequestError({ code: 'auth.forbidden', status: 403 }));",
+      "poc_scenario": "1) 'all' 스코프를 가진 M2M 앱 토큰 획득\n2) 해당 토큰으로 모든 사용자 데이터, 조직 설정, 보안 정책 변경 가능\n3) 특정 리소스에만 접근해야 하는 서비스가 전체 API에 접근하는 과도한 권한 부여",
+      "fix_suggestion": "리소스별 세분화된 스코프 정의 (예: users:read, orgs:write). 각 엔드포인트에서 필요한 최소 스코프 명시적 검증. 'all' 스코프는 특수 관리자용으로만 제한."
+    },
+    {
+      "type": "KEK Stored in Environment Variable - Key Exposure Risk",
+      "severity": "LOW",
+      "file": "packages/core/src/utils/secret-encryption.ts:23-31",
+      "introduced_in": "initial audit",
+      "description": "시크릿 볼트의 Key Encryption Key(KEK)가 환경 변수 SECRET_VAULT_KEK에 저장됨. 컨테이너 오케스트레이션 로그, 프로세스 목록, CI/CD 파이프라인에서 노출 위험. KEK 유출 시 모든 암호화된 시크릿 복호화 가능.",
+      "vulnerable_code": "const kek = Buffer.from(EnvSet.values.secretVaultKek, 'base64');\n// EnvSet.values.secretVaultKek = process.env.SECRET_VAULT_KEK",
+      "poc_scenario": "1) CI/CD 로그에서 환경 변수 노출 또는 /proc/1/environ 접근\n2) SECRET_VAULT_KEK 값 획득\n3) 암호화된 시크릿(웹훅 서명키, OAuth 클라이언트 시크릿 등) 전체 복호화",
+      "fix_suggestion": "HashiCorp Vault, AWS KMS, Azure Key Vault 등 외부 키 관리 서비스 사용. 환경 변수 대신 시크릿 마운트 사용. 키 순환(rotation) 정책 수립."
+    }
+  ]
+}

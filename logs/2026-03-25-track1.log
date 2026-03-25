@@ -1,0 +1,50 @@
+[T1 21:08:44] Rate limit: 타겟 간 120초 대기
+[T1 21:08:44] === api.example.com 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — api.example.com 스킵
+[T1 21:08:44] === chat.openai.com / api.openai.com 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — chat.openai.com / api.openai.com 스킵
+[T1 21:08:44] === *.atlassian.com / mcp.atlassian.com 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — *.atlassian.com / mcp.atlassian.com 스킵
+[T1 21:08:44] === api.aiven.io 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — api.aiven.io 스킵
+[T1 21:08:44] === mobileapi.afterpay.com / api.clearpay.com 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — mobileapi.afterpay.com / api.clearpay.com 스킵
+[T1 21:08:44] === data-api.coindesk.com / tools-api.cryptocompare.com 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — data-api.coindesk.com / tools-api.cryptocompare.com 스킵
+[T1 21:08:44] === api.anytask.com 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:44] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:44] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:44] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:44] 엔드포인트 없음 — api.anytask.com 스킵
+[T1 21:08:44] === neon.tech 처리 시작 ===
+[T1 21:08:44] Phase 1: 서브도메인 열거
+[T1 21:08:45] WARN: subfinder 미설치 — 서브도메인 열거 스킵
+[T1 21:08:45] Phase 2: API 엔드포인트 크롤링
+[T1 21:08:45] WARN: katana 미설치 — 엔드포인트 크롤링 스킵
+[T1 21:08:45] 엔드포인트 없음 — neon.tech 스킵
+[T1 21:08:45] Track 1 파이프라인 완료

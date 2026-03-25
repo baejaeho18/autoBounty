@@ -1,0 +1,66 @@
+{
+  "protocol": "Notional Exponent",
+  "date": "2026-03-25",
+  "findings": [
+    {
+      "type": "Oracle Staleness — Chainlink 가격 최신성 미검증",
+      "severity": "HIGH",
+      "source": "manual_review",
+      "contract": "ChainlinkUSDOracle, Curve2TokenOracle, PendlePTOracle",
+      "function": "_calculateBaseToQuote(), _getQuoteRate()",
+      "vulnerable_code": "// ChainlinkUSDOracle.sol:56\n(roundId, baseToUSD, startedAt, updatedAt, answeredInRound) = baseToUSDOracle.latestRoundData();\nrequire(baseToUSD > 0, \"Chainlink Rate Error\");\n// updatedAt, answeredInRound 완전 무시됨\n\n// PendlePTOracle.sol:85\n(roundId, baseToUSD, startedAt, updatedAt, answeredInRound) = baseToUSDOracle.latestRoundData();\nrequire(baseToUSD > 0, \"Chainlink Rate Error\");\n\n// ChainlinkUSDOracle._getQuoteRate():42-44\n(/* roundId */, quoteRate, /* startedAt */, /* updatedAt */, /* answeredInRound */)\n    = quoteToUSDOracle.latestRoundData();\nrequire(quoteRate > 0, \"Chainlink Rate Error\");",
+      "description": "ChainlinkUSDOracle.sol, Curve2TokenOracle.sol, PendlePTOracle.sol 의 _calculateBaseToQuote() 및 _getQuoteRate() 에서 Chainlink latestRoundData() 를 호출하면서 updatedAt 및 answeredInRound 를 완전히 무시합니다. MidasOracle.sol:50에서는 'if (mTokenUpdatedAt < updatedAt && (mTokenUpdatedAt < block.timestamp - 7 days)) updatedAt = mTokenUpdatedAt;' 처럼 staleness를 체크하지만 다른 오라클들은 미구현. 이 오라클들은 MorphoLendingRouter에서 vault 자체를 IOracle로 사용하는 구조에서(marketParams의 oracle: vault), AbstractYieldStrategy.convertYieldTokenToAsset()→TRADING_MODULE.getOraclePrice()를 통해 최종적으로 Morpho 담보 가치 계산에 사용됩니다.",
+      "attack_scenario": "1) Chainlink 노드 장애 또는 ETH/USD 같은 핵심 피드가 24시간 하트비트 이내로 업데이트 중단\n2) 실제 시장가가 오라클 stale 가격 대비 크게 하락했음에도 불구하고 vault의 price()는 여전히 높은 가격 반환\n3) 차입자는 과담보 상태로 보이지만 실제로는 저담보 상태 → 청산이 발생해야 할 포지션이 청산되지 않음\n4) 프로토콜 전체가 부실채권 누적",
+      "estimated_impact_usd": "Morpho 시장 TVL의 10~30% (오라클 staleness 기간 및 시장 변동성에 따라 다름)",
+      "fix_suggestion": "각 oracle의 _calculateBaseToQuote()에 staleness 검증 추가:\nrequire(block.timestamp - updatedAt <= MAX_ORACLE_FRESHNESS, \"Stale price\");\nrequire(answeredInRound >= roundId, \"Stale round\");\nMAX_ORACLE_FRESHNESS는 피드별 heartbeat(예: ETH/USD = 3600s, 스테이블코인 = 86400s)를 고려해 설정."
+    },
+    {
+      "type": "Sequencer Uptime Check 우회 — latestAnswer() 미검증",
+      "severity": "MEDIUM",
+      "source": "manual_review",
+      "contract": "AbstractCustomOracle",
+      "function": "latestAnswer()",
+      "vulnerable_code": "// AbstractCustomOracle.sol:57-61\nfunction latestAnswer() external view override returns (int256 answer) {\n    (/* */,\n        answer,/* */,/* */, /* */\n    ) = _calculateBaseToQuote();\n    // _checkSequencer() 미호출!\n}\n\n// 반면 latestRoundData()는:\nfunction latestRoundData() external view override returns (...) {\n    _checkSequencer();  // 시퀀서 체크 있음\n    return _calculateBaseToQuote();\n}",
+      "description": "AbstractCustomOracle.latestRoundData()는 _checkSequencer()를 호출하지만, latestAnswer()는 직접 _calculateBaseToQuote()를 호출하여 시퀀서 업타임 체크를 완전히 건너뜁니다. L2(Arbitrum, Base 등)에 배포 시 sequencerUptimeOracle이 address(0)이 아닌 경우, 시퀀서 다운 중에 TradingModule이 latestAnswer()를 사용하면 stale price가 그대로 반환됩니다. AbstractCustomOracle.sol:32-44의 _checkSequencer()는 L2 시퀀서 다운 후 1시간 grace period도 검증하는데, latestAnswer()는 이를 완전히 우회합니다.",
+      "attack_scenario": "1) L2 시퀀서 다운 발생\n2) TradingModule이 latestAnswer()를 통해 가격 조회 시 stale 가격 반환\n3) 시퀀서 복구 전 1시간 내에 stale 가격 기반 악성 거래 실행 (오라클 조작 시나리오)\n4) 시퀀서 복구 후에는 정상화되어 탐지 어려움",
+      "estimated_impact_usd": "L2 배포 시 잠재적으로 수백만 달러 규모 (시퀀서 다운 기간 및 가격 괴리에 따라 다름)",
+      "fix_suggestion": "latestAnswer()에도 _checkSequencer() 추가:\nfunction latestAnswer() external view override returns (int256 answer) {\n    _checkSequencer();\n    (/* */, answer, /* */, /* */, /* */) = _calculateBaseToQuote();\n}"
+    },
+    {
+      "type": "Unsafe ERC20 Transfer — non-standard 토큰 DoS",
+      "severity": "MEDIUM",
+      "source": "manual_review",
+      "contract": "AbstractLendingRouter",
+      "function": "_enterPositionWithYieldToken()",
+      "vulnerable_code": "// AbstractLendingRouter.sol:135\n// using SafeERC20 for ERC20 선언이 있음에도 불구하고:\nERC20(asset).transfer(msg.sender, assetsBorrowed);  // ← raw transfer 사용!\n// 아래처럼 같은 컨트랙트의 다른 곳은 safeTransfer 사용\nERC20(asset).safeTransferFrom(msg.sender, address(this), depositAssetAmount);",
+      "description": "AbstractLendingRouter.sol에는 'using SafeERC20 for ERC20' 선언이 있어 safeTransfer가 가능함에도 불구하고, _enterPositionWithYieldToken()의 135번 줄에서 'ERC20(asset).transfer(msg.sender, assetsBorrowed)'로 raw transfer를 사용합니다. USDT처럼 ERC20 표준을 완전히 준수하지 않아 bool을 반환하지 않는 토큰의 경우, Solidity의 ABI 디코더가 반환값 파싱 실패로 revert를 발생시킵니다. 같은 파일의 다른 ERC20 transfer(예: safeTransferFrom, safeTransfer)는 모두 SafeERC20을 사용하는 것과 대조됩니다.",
+      "attack_scenario": "1) USDT 또는 다른 non-standard ERC20 토큰을 asset으로 사용하는 vault 존재\n2) positionSwapContract가 borrowAmount > 0으로 _enterPositionWithYieldToken 호출\n3) ERC20(asset).transfer()가 ABI 디코딩 실패로 항상 revert\n4) positionSwapContract를 통한 yield token 포지션 진입 완전 불가 (기능적 DoS)",
+      "estimated_impact_usd": "특정 토큰 페어의 포지션 진입 불가로 인한 기회비용 손실 (직접적 자금 손실 없음)",
+      "fix_suggestion": "// 수정:\nERC20(asset).safeTransfer(msg.sender, assetsBorrowed);\n// SafeERC20은 이미 'using SafeERC20 for ERC20'으로 선언되어 있어 추가 import 불필요"
+    },
+    {
+      "type": "Reward Loss on Failed Transfer — 리워드 영구 소실",
+      "severity": "LOW",
+      "source": "manual_review",
+      "contract": "AbstractRewardManager",
+      "function": "_claimRewardToken()",
+      "vulnerable_code": "// AbstractRewardManager.sol:264-286\nuint256 rewardDebt = _getAccountRewardDebtSlot()[rewardToken][account];\nrewardToClaim = ((accountSharesBefore * rewardsPerVaultShare) / SHARE_PRECISION) - rewardDebt;\n// rewardDebt는 transfer 전에 업데이트됨!\n_getAccountRewardDebtSlot()[rewardToken][account] =\n    ((accountSharesAfter * rewardsPerVaultShare) / SHARE_PRECISION);\n\nif (0 < rewardToClaim) {\n    try IEIP20NonStandard(rewardToken).transfer(account, rewardToClaim) {\n        bool success = TokenUtils.checkReturnCode();\n        // transfer 실패해도 rewardDebt는 이미 업데이트됨 → 리워드 영구 소실\n    } catch {\n        emit VaultRewardTransfer(rewardToken, account, 0);\n        // catch해도 rewardDebt는 복구되지 않음\n    }\n}",
+      "description": "AbstractRewardManager._claimRewardToken()에서 rewardDebt(계정의 리워드 청구 기록)를 transfer 이전에 먼저 업데이트합니다. try-catch로 transfer 실패를 처리하지만, 실패 시 rewardDebt를 이전 값으로 복구하지 않습니다. 결과적으로 리워드 토큰 전송 실패 시(블랙리스트, 잔액 부족, 토큰 일시 중단 등) 해당 리워드는 영구적으로 소실됩니다. 코드 주석에 'Ignore transfer errors here so that any strange failures here do not prevent normal vault operations'라고 명시되어 있어 설계상 의도적이나, 사용자 리워드 손실 가능성이 존재합니다.",
+      "attack_scenario": "1) 사용자가 USDC 블랙리스트에 등록됨(Circle의 제재 등)\n2) vault의 리워드 토큰이 USDC인 경우\n3) 사용자가 deposit/withdraw/liquidation 시 _claimRewardToken 자동 호출\n4) transfer 실패하고 rewardDebt는 증가 → 해당 리워드 영구 소실\n5) 사용자는 이후 블랙리스트 해제되어도 해당 리워드 청구 불가",
+      "estimated_impact_usd": "개별 사용자 리워드 소실 (블랙리스트된 계정의 누적 리워드 금액에 따라 수천~수만 달러 가능)",
+      "fix_suggestion": "transfer 실패 시 rewardDebt를 이전 값으로 복구하도록 수정:\nuint256 prevRewardDebt = _getAccountRewardDebtSlot()[rewardToken][account];\n// ... 계산 ...\ntry IEIP20NonStandard(rewardToken).transfer(account, rewardToClaim) {\n    bool success = TokenUtils.checkReturnCode();\n    if (!success) {\n        // 실패 시 이전 rewardDebt로 복구\n        _getAccountRewardDebtSlot()[rewardToken][account] = prevRewardDebt;\n        emit VaultRewardTransfer(rewardToken, account, 0);\n    }\n} catch {\n    _getAccountRewardDebtSlot()[rewardToken][account] = prevRewardDebt;\n    emit VaultRewardTransfer(rewardToken, account, 0);\n}"
+    },
+    {
+      "type": "Taylor 급수 근사 — 수수료 과소계산 가능성",
+      "severity": "LOW",
+      "source": "manual_review",
+      "contract": "AbstractYieldStrategy",
+      "function": "_calculateAdditionalFeesInYieldToken()",
+      "vulnerable_code": "// AbstractYieldStrategy.sol:447-450\n// Taylor approximation of e ^ x = 1 + x + x^2/2! + x^3/3! (3항까지만)\nuint256 eToTheX = DEFAULT_PRECISION + x + (x * x) / (2 * DEFAULT_PRECISION) + (x * x * x)\n    / (6 * DEFAULT_PRECISION * DEFAULT_PRECISION);\n// x가 클수록 실제 e^x와 오차 증가: x=10일 때 Taylor≈228 vs 실제 e^10≈22026",
+      "description": "AbstractYieldStrategy._calculateAdditionalFeesInYieldToken()에서 e^x를 3차 Taylor 급수로 근사합니다. x = feeRate * timeSinceLastFeeAccrual / YEAR이며, 정상적인 수수료율(1-5% per year)과 자주 상호작용하는 경우 오차는 무시할 수 있습니다. 그러나 feeRate이 높게 설정되거나 장기간(수년) 상호작용이 없는 경우, 수수료가 크게 과소계산됩니다. 예: feeRate=50%, 2년 미상호작용 시 x=1, Taylor≈2.667 vs 실제 e=2.718 (약 1.9% 오차). 극단적으로 feeRate=100%, 10년 미상호작용 시 x=10, Taylor≈228 vs 실제≈22026 (99% 과소계산). 계산 결과가 항상 언더추정이므로 프로토콜은 수수료를 덜 수령하게 됩니다.",
+      "attack_scenario": "1) 공격자가 높은 feeRate이 설정된 vault에 대량 예치\n2) 장기간 상호작용 없이 대기 (직접 공격보다는 우발적 시나리오)\n3) Taylor 과소추정으로 인해 프로토콜 수수료 수령액 감소\n4) 적극적 공격 시나리오: feeRate이 높게 설정된 vault에서 collectFees 호출 타이밍 조절로 fee 최소화",
+      "estimated_impact_usd": "프로토콜 수수료 수익의 일부 (수수료율 및 미상호작용 기간에 따라 다름, 일반적 시나리오에서는 미미)",
+      "fix_suggestion": "더 많은 Taylor 급수 항 추가(4~5차) 또나 충분히 긴 시간 간격에 대해 _accrueFees()가 정기적으로 호출되도록 보장. 대안으로 x > threshold 시 상한값 클램핑 또는 Solidity 고정소수점 exponential 라이브러리 사용."
+    }
+  ]
+}

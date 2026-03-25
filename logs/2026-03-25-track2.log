@@ -1,0 +1,16 @@
+[T2 21:08:44] === Logto (Node.js (TypeScript)) 감사 시작 ===
+[T2 21:08:44] Phase 1: git clone (신규)
+[T2 21:09:30] Phase 2a: Semgrep 스캔
+[T2 21:10:02] Semgrep: 32건 발견
+[T2 21:10:02] Phase 2b: 의존성 CVE 스캔
+[T2 21:10:02] WARN: npm audit 실패
+[T2 21:10:02] Phase 3: SAST → LLM 정밀 분석 (코드 컨텍스트 포함)
+[T2 21:10:02] Phase 3a: Semgrep 결과 TP/FP 판별 (LLM + 코드 직접 읽기)
+[T2 21:16:29] Phase 4: 신규 레포 — 전체 보안 관련 코드 분석 (LLM 직접 탐색)
+[T2 21:20:24] Phase 5: 결과 통합 + 리포트
+통합: 16건 (SAST TP + Diff)
+[T2 21:20:24] !! CRITICAL/HIGH 7건 — 리포트 초안 생성
+[add_finding] oss/Logto: 7건 추가 (총 7건)
+[T2 21:22:46] 리포트 저장: /home/bjho/autoBounty/data/track2/reports/Logto_2026-03-25_report.md
+[T2 21:22:46] === Logto 완료 ===
+[T2 21:22:46] Track 2 파이프라인 완료

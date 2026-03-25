@@ -60,33 +60,58 @@ echo "  ✓ claude ($(claude --version 2>/dev/null || echo 'installed'))"
 # ─── 4. 보안 도구 자동 설치 ───
 echo "[4/7] 보안 도구 설치..."
 
-# Go 설치 확인 (subfinder, httpx, katana에 필요)
-install_go_tools() {
-  if ! command -v go &>/dev/null; then
-    echo "  Go 미설치 — 설치 중..."
-    if command -v apt &>/dev/null; then
-      sudo apt install -y golang-go 2>/dev/null || {
-        # apt 버전이 너무 낮으면 공식 바이너리
-        GO_VERSION="1.22.4"
-        curl -sL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xzf -
-        export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
-        echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.bashrc
-      }
-    elif command -v brew &>/dev/null; then
-      brew install go 2>/dev/null
-    else
-      echo "  ⚠ Go 자동 설치 실패 — subfinder/httpx/katana 스킵"
-      return 1
-    fi
-  fi
-  export PATH=$PATH:$HOME/go/bin:/usr/local/go/bin
+# PATH에 사용자 로컬 bin 추가
+export PATH=$HOME/.local/bin:$HOME/go/bin:/usr/local/go/bin:$PATH
+
+# pip3 확인 및 설치 (sudo 없이 사용자 공간에)
+PIP_CMD=""
+if command -v pip3 &>/dev/null; then
+  PIP_CMD="pip3 install --user"
+elif python3 -m pip --version &>/dev/null 2>&1; then
+  PIP_CMD="python3 -m pip install --user"
+else
+  echo "  pip 미설치 — 사용자 공간에 설치 중..."
+  PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+  curl -sS "https://bootstrap.pypa.io/pip/${PY_VER}/get-pip.py" -o /tmp/get-pip.py 2>/dev/null \
+    || curl -sS "https://bootstrap.pypa.io/get-pip.py" -o /tmp/get-pip.py 2>/dev/null
+  python3 /tmp/get-pip.py --user 2>/dev/null && {
+    export PATH=$HOME/.local/bin:$PATH
+    PIP_CMD="pip3 install --user"
+    echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc
+  } || echo "  ⚠ pip 설치 실패 — Python 도구 스킵됨"
+fi
+
+# Go 버전 확인 (1.18+ 필요)
+GO_AVAILABLE=false
+GO_MIN_MINOR=18
+GO_INSTALL_VERSION="1.22.4"
+
+install_go() {
+  echo "  Go ${GO_INSTALL_VERSION} 설치 중 (~/.local/go)..."
+  local TMP_TAR="/tmp/go${GO_INSTALL_VERSION}.tar.gz"
+  local GO_DIR="$HOME/.local/go"
+  curl -sL "https://go.dev/dl/go${GO_INSTALL_VERSION}.linux-amd64.tar.gz" -o "$TMP_TAR" || \
+    { echo "  ⚠ Go 다운로드 실패 — subfinder/httpx/katana 스킵"; return 1; }
+  rm -rf "$GO_DIR" && mkdir -p "$HOME/.local"
+  tar -C "$HOME/.local" -xzf "$TMP_TAR" && rm -f "$TMP_TAR" || \
+    { echo "  ⚠ Go 설치 실패 — subfinder/httpx/katana 스킵"; return 1; }
+  export PATH=$GO_DIR/bin:$HOME/go/bin:$PATH
+  grep -qF '/.local/go/bin' ~/.bashrc || echo 'export PATH=$HOME/.local/go/bin:$HOME/go/bin:$PATH' >> ~/.bashrc
+  echo "  ✓ Go $(go version | grep -oP 'go[0-9.]+')"
   return 0
 }
 
-# Track 1 도구: subfinder, httpx, katana
-GO_AVAILABLE=false
-if install_go_tools; then
-  GO_AVAILABLE=true
+if command -v go &>/dev/null; then
+  GO_MINOR=$(go version 2>/dev/null | grep -oP 'go1\.\K[0-9]+' | head -1)
+  if [[ -n "$GO_MINOR" && "$GO_MINOR" -ge "$GO_MIN_MINOR" ]]; then
+    GO_AVAILABLE=true
+  else
+    echo "  Go 버전 낮음 (현재: 1.${GO_MINOR}) — ${GO_INSTALL_VERSION}으로 업그레이드 중..."
+    install_go && GO_AVAILABLE=true
+  fi
+else
+  echo "  Go 미설치 — 설치 중..."
+  install_go && GO_AVAILABLE=true
 fi
 
 if [[ "$GO_AVAILABLE" == "true" ]]; then
@@ -100,7 +125,7 @@ if [[ "$GO_AVAILABLE" == "true" ]]; then
       echo "  ✓ $tool_name"
     else
       echo "  $tool_name 설치 중..."
-      if go install -v "$install_path" 2>/dev/null; then
+      if go install "$install_path" 2>/dev/null; then
         echo "  ✓ $tool_name 설치 완료"
       else
         echo "  ⚠ $tool_name 설치 실패 — 해당 기능 스킵됨"
@@ -108,15 +133,15 @@ if [[ "$GO_AVAILABLE" == "true" ]]; then
     fi
   done
 else
-  echo "  ⚠ Go 없음 — subfinder, httpx, katana 스킵 (Track 1 일부 기능 제한)"
+  echo "  ⚠ subfinder, httpx, katana 스킵 (Go 1.18+ 필요, Track 1 일부 기능 제한)"
 fi
 
 # Playwright (IDOR 토큰 자동 추출용)
 if python3 -c "import playwright" 2>/dev/null; then
   echo "  ✓ playwright"
-else
+elif [[ -n "$PIP_CMD" ]]; then
   echo "  playwright 설치 중..."
-  if pip3 install playwright 2>/dev/null && playwright install chromium 2>/dev/null; then
+  if $PIP_CMD playwright 2>/dev/null && playwright install chromium 2>/dev/null; then
     echo "  ✓ playwright + chromium 설치 완료"
   else
     echo "  ⚠ playwright 설치 실패 — 토큰 수동 추출 필요"
@@ -124,26 +149,28 @@ else
 fi
 
 # Track 2 도구: semgrep, pip-audit
-echo "  Python 보안 도구 설치 중..."
-for pip_tool in semgrep pip-audit; do
-  if command -v "$pip_tool" &>/dev/null; then
-    echo "  ✓ $pip_tool"
-  else
-    echo "  $pip_tool 설치 중..."
-    if pip3 install "$pip_tool" 2>/dev/null; then
-      echo "  ✓ $pip_tool 설치 완료"
+if [[ -n "$PIP_CMD" ]]; then
+  echo "  Python 보안 도구 설치 중..."
+  for pip_tool in semgrep pip-audit; do
+    if command -v "$pip_tool" &>/dev/null; then
+      echo "  ✓ $pip_tool"
     else
-      echo "  ⚠ $pip_tool 설치 실패 — 해당 기능 스킵됨"
+      echo "  $pip_tool 설치 중..."
+      if $PIP_CMD "$pip_tool" 2>/dev/null; then
+        echo "  ✓ $pip_tool 설치 완료"
+      else
+        echo "  ⚠ $pip_tool 설치 실패 — 해당 기능 스킵됨"
+      fi
     fi
-  fi
-done
+  done
+fi
 
 # Track 3 도구: slither
 if command -v slither &>/dev/null; then
   echo "  ✓ slither"
-else
+elif [[ -n "$PIP_CMD" ]]; then
   echo "  slither 설치 중..."
-  if pip3 install slither-analyzer 2>/dev/null; then
+  if $PIP_CMD slither-analyzer 2>/dev/null; then
     echo "  ✓ slither 설치 완료"
   else
     echo "  ⚠ slither 설치 실패 — Track 3 정적 분석 스킵됨"
@@ -189,7 +216,7 @@ fi
 echo "[7/7] 초회 타겟 탐색..."
 
 # 이전에 discover 결과가 한 번도 없으면 즉시 실행
-DISCOVER_EXISTS=$(ls "$BASE"/data/discovered_*.json 2>/dev/null | head -1)
+DISCOVER_EXISTS=$(ls "$BASE"/data/discovered_*.json 2>/dev/null | head -1 || true)
 if [[ -z "$DISCOVER_EXISTS" ]]; then
   echo "  첫 설치 — 타겟 후보 탐색을 지금 실행합니다..."
   echo "  (백그라운드 실행, 결과: data/discovered_$(date +%Y-%m-%d).json)"

@@ -8,6 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="$(dirname "$SCRIPT_DIR")"
+export PATH="$HOME/.local/go/bin:$HOME/go/bin:/usr/local/go/bin:$HOME/.local/bin:$PATH"
 TRACK_DIR="$BASE/data/track3"
 TARGETS="$BASE/data/targets_web3.json"
 CONFIG="$BASE/config.json"
