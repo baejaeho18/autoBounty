@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+# ============================================================
+# bounty — 사람이 쓰는 유일한 명령어
+#
+# 사용법:
+#   ./bounty run          전체 파이프라인 즉시 실행
+#   ./bounty status       현재 상태 한눈에 보기
+#   ./bounty list         검증 대기 건 목록
+#   ./bounty show N       N번 건 상세 + 리포트 전문
+#   ./bounty verify N     N번 건 수동 검증 완료
+#   ./bounty reject N     N번 건 FP 처리
+#   ./bounty submit N     N번 건 플랫폼 제출 완료
+#   ./bounty paid N       N번 건 바운티 수령
+#   ./bounty log          오늘 실행 로그
+#   ./bounty add          타겟 추가 가이드
+# ============================================================
+set -euo pipefail
+
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATE=$(date +%Y-%m-%d)
+LOG_DIR="$BASE/logs"
+REVIEW="python3 $BASE/scripts/review.py"
+DB="$BASE/data/findings.json"
+
+RED='\033[91m'; YEL='\033[93m'; GRN='\033[92m'; CYN='\033[96m'; DIM='\033[2m'; BOLD='\033[1m'; RST='\033[0m'
+
+cmd="${1:-help}"
+arg="${2:-}"
+
+case "$cmd" in
+
+  # ── 즉시 실행 ──
+  run)
+    echo -e "${BOLD}▶ 파이프라인 실행 시작${RST}"
+    bash "$BASE/scripts/orchestrator.sh" &
+    PID=$!
+    echo -e "  PID: $PID"
+    echo -e "  로그: ${DIM}tail -f $LOG_DIR/$DATE-orchestrator.log${RST}"
+    echo -e "  완료되면 ${CYN}./bounty status${RST} 로 확인"
+    ;;
+
+  # ── 상태 대시보드 ──
+  status)
+    echo ""
+    echo -e "${BOLD}═══════════════════════════════════════${RST}"
+    echo -e "${BOLD}  🎯 Bounty Autopilot Dashboard${RST}"
+    echo -e "${BOLD}═══════════════════════════════════════${RST}"
+
+    # 실행 상태
+    if [[ -f "$BASE/.orchestrator.lock" ]]; then
+      LOCK_PID=$(cat "$BASE/.orchestrator.lock" 2>/dev/null || echo "")
+      if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+        echo -e "  상태: ${GRN}● 실행 중${RST} (PID $LOCK_PID)"
+      else
+        echo -e "  상태: ${DIM}○ 대기 중${RST}"
+      fi
+    else
+      echo -e "  상태: ${DIM}○ 대기 중${RST}"
+    fi
+
+    # 마지막 실행 시각
+    LAST_LOG=$(ls -t "$LOG_DIR"/*-orchestrator.log 2>/dev/null | head -1)
+    if [[ -n "${LAST_LOG:-}" ]]; then
+      LAST_DATE=$(basename "$LAST_LOG" | cut -d'-' -f1-3)
+      LAST_LINE=$(tail -1 "$LAST_LOG" 2>/dev/null || echo "")
+      echo -e "  마지막 실행: ${LAST_DATE}"
+      if echo "$LAST_LINE" | grep -q "에러"; then
+        echo -e "  결과: ${RED}에러 발생${RST} — ${DIM}./bounty log${RST}"
+      elif echo "$LAST_LINE" | grep -q "완료"; then
+        echo -e "  결과: ${GRN}정상 완료${RST}"
+      fi
+    fi
+
+    echo ""
+
+    # 발견 통계
+    if [[ -f "$DB" ]]; then
+      python3 - "$DB" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    db = json.load(f)
+findings = db.get("findings", [])
+pending = [f for f in findings if f["status"] == "pending_review"]
+verified = [f for f in findings if f["status"] == "verified"]
+submitted = [f for f in findings if f["status"] == "submitted"]
+paid = [f for f in findings if f["status"] == "paid"]
+rejected = [f for f in findings if f["status"] == "rejected"]
+
+print(f"  📊 누적 통계")
+print(f"  {'─'*35}")
+print(f"  ⏳ 검증 대기    \033[93m{len(pending):>3}건\033[0m" + (" ← 확인 필요!" if pending else ""))
+print(f"  ✅ 검증 완료    {len(verified):>3}건" + (" ← 제출하세요!" if verified else ""))
+print(f"  📨 제출 완료    {len(submitted):>3}건")
+print(f"  💰 바운티 수령  \033[92m{len(paid):>3}건\033[0m")
+print(f"  ❌ FP 제거      \033[2m{len(rejected):>3}건\033[0m")
+print(f"  {'─'*35}")
+print(f"  총 {len(findings)}건 | FP율 {len(rejected)*100/max(len(findings),1):.0f}%")
+
+if pending:
+    print(f"\n  🔔 지금 할 일: \033[1m./bounty list\033[0m")
+elif verified:
+    print(f"\n  🔔 지금 할 일: 검증된 건을 플랫폼에 제출하세요")
+else:
+    print(f"\n  ✨ 할 일 없음 — 다음 실행을 기다리세요")
+PYEOF
+    else
+      echo -e "  ${DIM}아직 데이터 없음 — ./bounty run 으로 첫 실행${RST}"
+    fi
+
+    # 타겟 현황
+    echo ""
+    echo -e "  🎯 등록된 타겟"
+    echo -e "  ${DIM}─────────────────────────────────────${RST}"
+    for track in idor oss web3; do
+      FILE="$BASE/data/targets_${track}.json"
+      if [[ -f "$FILE" ]]; then
+        COUNT=$(python3 -c "import json; print(len(json.load(open('$FILE'))))" 2>/dev/null || echo "0")
+        echo -e "  ${track}: ${COUNT}개"
+      fi
+    done
+    echo ""
+    ;;
+
+  # ── 대기 건 목록 ──
+  list)
+    $REVIEW
+    ;;
+
+  # ── 상세 보기 ──
+  show)
+    if [[ -z "$arg" ]]; then
+      echo "사용법: ./bounty show [번호]"
+      exit 1
+    fi
+    $REVIEW --show "$arg"
+
+    # 리포트 전문도 자동 표시
+    REPORT_PATH=$(python3 -c "
+import json
+with open('$DB') as f:
+    db = json.load(f)
+idx = $arg
+if idx < len(db['findings']):
+    print(db['findings'][idx].get('report_path', ''))
+" 2>/dev/null || echo "")
+
+    if [[ -n "$REPORT_PATH" ]] && [[ -f "$REPORT_PATH" ]]; then
+      echo ""
+      echo -e "${BOLD}  ═══ 리포트 전문 ═══${RST}"
+      echo ""
+      cat "$REPORT_PATH"
+      echo ""
+      echo -e "${DIM}  ──────────────────────────────────${RST}"
+      echo -e "  다음 단계:"
+      echo -e "    ${GRN}./bounty verify $arg${RST}  ← Burp로 재현 성공 시"
+      echo -e "    ${RED}./bounty reject $arg${RST}  ← FP일 때"
+    fi
+    ;;
+
+  # ── 상태 변경 ──
+  verify)
+    [[ -z "$arg" ]] && { echo "사용법: ./bounty verify [번호]"; exit 1; }
+    $REVIEW --verify "$arg"
+    echo -e "\n  다음: Burp 재현 스크린샷과 함께 플랫폼에 제출 → ${GRN}./bounty submit $arg${RST}"
+    ;;
+
+  reject)
+    [[ -z "$arg" ]] && { echo "사용법: ./bounty reject [번호]"; exit 1; }
+    $REVIEW --reject "$arg"
+    ;;
+
+  submit)
+    [[ -z "$arg" ]] && { echo "사용법: ./bounty submit [번호]"; exit 1; }
+
+    # 제출 대상 정보 표시
+    python3 - "$DB" "$arg" <<'PYEOF'
+import json, sys
+with open(sys.argv[1]) as f:
+    db = json.load(f)
+idx = int(sys.argv[2])
+if idx < len(db["findings"]):
+    f = db["findings"][idx]
+    track = f["track"]
+    if track == "web3":
+        print(f"\n  📋 제출처: Immunefi (https://immunefi.com)")
+    else:
+        print(f"\n  📋 제출처: HackerOne 또는 Bugcrowd")
+    rp = f.get("report_path", "")
+    if rp:
+        print(f"  📝 리포트: {rp}")
+        print(f"     ↑ 이 파일 내용을 플랫폼에 복사/붙여넣기")
+PYEOF
+    $REVIEW --submit "$arg"
+    ;;
+
+  paid)
+    [[ -z "$arg" ]] && { echo "사용법: ./bounty paid [번호]"; exit 1; }
+    $REVIEW --paid "$arg"
+    echo -e "\n  🎉 축하합니다!"
+    ;;
+
+  # ── 로그 확인 ──
+  log)
+    LOG_DATE="${arg:-$DATE}"
+    echo -e "${BOLD}  로그: $LOG_DATE${RST}\n"
+    for track in orchestrator track1 track2 track3; do
+      LOG_FILE="$LOG_DIR/$LOG_DATE-$track.log"
+      if [[ -f "$LOG_FILE" ]]; then
+        LINES=$(wc -l < "$LOG_FILE")
+        LAST=$(tail -1 "$LOG_FILE")
+        echo -e "  ${CYN}$track${RST} (${LINES}줄): $LAST"
+      fi
+    done
+    echo -e "\n  ${DIM}전체 보기: cat $LOG_DIR/$LOG_DATE-[track].log${RST}"
+    ;;
+
+  # ── 타겟 추가 가이드 ──
+  add)
+    echo ""
+    echo -e "${BOLD}  타겟 추가${RST}"
+    echo ""
+    echo -e "  ${CYN}# IDOR (HackerOne에서 API 바운티 프로그램 찾기)${RST}"
+    echo '  ./bounty add-idor api.example.com https://hackerone.com/example'
+    echo ""
+    echo -e "  ${CYN}# OSS (GitHub에서 Stars 1K~15K 웹앱 찾기)${RST}"
+    echo '  ./bounty add-oss https://github.com/org/project project python'
+    echo ""
+    echo -e "  ${CYN}# Web3 (Immunefi에서 $10K+ 바운티 찾기)${RST}"
+    echo '  ./bounty add-web3 https://github.com/org/protocol protocol'
+    echo ""
+    echo -e "  ${RED}⚠  IDOR는 반드시 계정 2개 + 토큰 환경변수 설정 필요${RST}"
+    echo '  export TARGET1_TOKEN_A="Bearer eyJ..."'
+    echo '  export TARGET1_TOKEN_B="Bearer eyJ..."'
+    echo ""
+    ;;
+
+  add-idor)
+    DOMAIN="${2:-}"; PROGRAM="${3:-}"
+    [[ -z "$DOMAIN" ]] && { echo "사용법: ./bounty add-idor [domain] [program_url]"; exit 1; }
+    python3 "$BASE/scripts/add_target.py" idor --domain "$DOMAIN" --program "$PROGRAM"
+    ;;
+
+  add-oss)
+    REPO="${2:-}"; NAME="${3:-}"; LANG="${4:-}"
+    [[ -z "$REPO" ]] && { echo "사용법: ./bounty add-oss [repo_url] [name] [lang]"; exit 1; }
+    python3 "$BASE/scripts/add_target.py" oss --repo "$REPO" ${NAME:+--name "$NAME"} ${LANG:+--lang "$LANG"}
+    ;;
+
+  add-web3)
+    REPO="${2:-}"; NAME="${3:-}"
+    [[ -z "$REPO" ]] && { echo "사용법: ./bounty add-web3 [repo_url] [name]"; exit 1; }
+    python3 "$BASE/scripts/add_target.py" web3 --repo "$REPO" ${NAME:+--name "$NAME"}
+    ;;
+
+  # ── 도움말 ──
+  help|*)
+    echo ""
+    echo -e "${BOLD}  🎯 Bounty Autopilot${RST}"
+    echo ""
+    echo -e "  ${GRN}./bounty run${RST}          지금 즉시 실행"
+    echo -e "  ${GRN}./bounty status${RST}       대시보드 (한눈에 현황)"
+    echo -e "  ${GRN}./bounty list${RST}         검증 대기 건 목록"
+    echo -e "  ${GRN}./bounty show N${RST}       N번 건 상세 + 리포트 전문"
+    echo -e "  ${GRN}./bounty verify N${RST}     재현 성공 → 검증 완료"
+    echo -e "  ${GRN}./bounty reject N${RST}     FP → 제거"
+    echo -e "  ${GRN}./bounty submit N${RST}     플랫폼 제출 완료"
+    echo -e "  ${GRN}./bounty paid N${RST}       바운티 수령 🎉"
+    echo -e "  ${GRN}./bounty log${RST}          오늘 실행 로그"
+    echo -e "  ${GRN}./bounty add${RST}          타겟 추가 가이드"
+    echo ""
+    ;;
+
+esac
