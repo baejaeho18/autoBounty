@@ -41,19 +41,44 @@ if [[ "$TARGET_COUNT" == "0" ]]; then
   exit 0
 fi
 
+TOKEN_MANAGER="$BASE/scripts/token_manager.py"
+
 python3 -c "
-import json, os
+import json, os, sys
+sys.path.insert(0, '$BASE/scripts')
+
+# token_manager가 있으면 사용, 없으면 기존 ENV 방식 폴백
+try:
+    from token_manager import get_tokens_for_domain, load_tokens
+    token_store = load_tokens()
+    has_token_manager = True
+except:
+    has_token_manager = False
+
 with open('$TARGETS') as f:
     targets = json.load(f)
 for t in targets:
-    token_a = t.get('auth', {}).get('user_a_token', '')
-    token_b = t.get('auth', {}).get('user_b_token', '')
-    # ENV: 접두사면 환경변수에서 읽기
-    if token_a.startswith('ENV:'):
-        token_a = os.environ.get(token_a[4:], '')
-    if token_b.startswith('ENV:'):
-        token_b = os.environ.get(token_b[4:], '')
-    print(f\"{t['domain']}|{token_a}|{token_b}|{t.get('program_url','')}\")
+    domain = t['domain']
+    token_a = ''
+    token_b = ''
+
+    # 1순위: token_manager (자동 갱신 포함)
+    if has_token_manager and domain in token_store:
+        ta, tb = get_tokens_for_domain(domain)
+        if ta: token_a = ta
+        if tb: token_b = tb
+
+    # 2순위: ENV 환경변수 (기존 방식 호환)
+    if not token_a:
+        env_key = t.get('auth', {}).get('user_a_token', '')
+        if env_key.startswith('ENV:'):
+            token_a = os.environ.get(env_key[4:], '')
+    if not token_b:
+        env_key = t.get('auth', {}).get('user_b_token', '')
+        if env_key.startswith('ENV:'):
+            token_b = os.environ.get(env_key[4:], '')
+
+    print(f\"{domain}|{token_a}|{token_b}|{t.get('program_url','')}\")
 " | while IFS='|' read -r DOMAIN TOKEN_A TOKEN_B PROGRAM_URL; do
 
   log "=== $DOMAIN 처리 시작 ==="
@@ -196,7 +221,7 @@ for t in targets:
     log "Phase 3.5: 토큰 기반 자동 IDOR 검증"
 
     python3 - "$ANALYSIS_FILE" "$TOKEN_A" "$TOKEN_B" "$DOMAIN_DIR" "$DATE" <<'PYEOF'
-import json, sys, subprocess, os
+import json, sys, subprocess, os, hashlib
 
 analysis_file, token_a, token_b, domain_dir, date = sys.argv[1:6]
 
@@ -213,39 +238,95 @@ for c in data.get("candidates", []):
     if not endpoint.startswith("http"):
         continue
 
-    # User A로 요청
-    cmd_a = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+    # User A로 요청 — 응답 body + status code 캡처
+    cmd_a = ["curl", "-s", "-w", "\n__STATUS__%{http_code}",
              "-H", f"Authorization: {token_a}", "-X", method, endpoint]
-    # User B로 동일 엔드포인트 요청 (IDOR 시도)
-    cmd_b = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+    # User B로 동일 엔드포인트 요청
+    cmd_b = ["curl", "-s", "-w", "\n__STATUS__%{http_code}",
              "-H", f"Authorization: {token_b}", "-X", method, endpoint]
 
     try:
-        code_a = subprocess.run(cmd_a, capture_output=True, text=True, timeout=10).stdout.strip()
-        code_b = subprocess.run(cmd_b, capture_output=True, text=True, timeout=10).stdout.strip()
+        res_a = subprocess.run(cmd_a, capture_output=True, text=True, timeout=15)
+        res_b = subprocess.run(cmd_b, capture_output=True, text=True, timeout=15)
 
-        verified = False
-        # User A 성공(200) + User B도 성공(200) = IDOR 가능성 높음
+        # 응답 파싱: body와 status code 분리
+        raw_a = res_a.stdout.rsplit("\n__STATUS__", 1)
+        raw_b = res_b.stdout.rsplit("\n__STATUS__", 1)
+        body_a = raw_a[0] if len(raw_a) > 1 else ""
+        code_a = raw_a[1].strip() if len(raw_a) > 1 else "?"
+        body_b = raw_b[0] if len(raw_b) > 1 else ""
+        code_b = raw_b[1].strip() if len(raw_b) > 1 else "?"
+
+        # IDOR 판정 로직 (3단계)
+        idor_confidence = "none"
+        idor_evidence = ""
+
         if code_a == "200" and code_b == "200":
-            verified = True
+            # Level 1: 둘 다 200 → 후보
+            idor_confidence = "low"
+            idor_evidence = "Both returned 200"
+
+            # Level 2: 응답 body에 User A 고유 데이터가 User B에게도 보이는지
+            try:
+                json_a = json.loads(body_a)
+                json_b = json.loads(body_b)
+
+                # 응답이 동일하면 (같은 데이터 반환) IDOR 확정도 높음
+                if body_a.strip() == body_b.strip():
+                    idor_confidence = "high"
+                    idor_evidence = "Identical response body — User B sees User A's data"
+                # 응답 구조가 같고 내용이 있으면 (에러 응답이 아님)
+                elif set(json_a.keys()) == set(json_b.keys()) and len(body_a) > 50:
+                    idor_confidence = "medium"
+                    idor_evidence = "Same response structure with data (not error page)"
+            except (json.JSONDecodeError, AttributeError):
+                # JSON이 아닌 응답도 크기 비교
+                if abs(len(body_a) - len(body_b)) < 100 and len(body_a) > 50:
+                    idor_confidence = "medium"
+                    idor_evidence = "Similar response size (non-JSON)"
+
+        elif code_a == "200" and code_b in ("401", "403"):
+            idor_confidence = "none"
+            idor_evidence = f"Properly blocked (User B got {code_b})"
+
+        # 증거 파일 저장 (high/medium만)
+        evidence_dir = os.path.join(domain_dir, "evidence")
+        evidence_paths = {}
+        if idor_confidence in ("high", "medium"):
+            os.makedirs(evidence_dir, exist_ok=True)
+            safe_endpoint = hashlib.md5(endpoint.encode()).hexdigest()[:8]
+            for label, code, body in [("user_a", code_a, body_a), ("user_b", code_b, body_b)]:
+                epath = os.path.join(evidence_dir, f"{date}_{safe_endpoint}_{label}.txt")
+                with open(epath, "w") as ef:
+                    ef.write(f"Endpoint: {method} {endpoint}\n")
+                    ef.write(f"Status: {code}\n")
+                    ef.write(f"---\n{body[:5000]}\n")
+                evidence_paths[label] = epath
 
         results.append({
             "endpoint": endpoint,
             "method": method,
             "status_user_a": code_a,
             "status_user_b": code_b,
-            "idor_likely": verified,
+            "idor_confidence": idor_confidence,
+            "idor_evidence": idor_evidence,
+            "evidence_files": evidence_paths,
+            "response_size_a": len(body_a),
+            "response_size_b": len(body_b),
             "original_severity": c.get("severity"),
         })
     except Exception as e:
         results.append({"endpoint": endpoint, "error": str(e)})
 
 output_path = os.path.join(domain_dir, f"idor_verify_{date}.json")
+verified_count = sum(1 for r in results if r.get("idor_confidence") in ("high", "medium"))
 with open(output_path, "w") as f:
-    json.dump({"results": results, "verified_count": sum(1 for r in results if r.get("idor_likely"))}, f, indent=2)
+    json.dump({"results": results, "verified_count": verified_count}, f, indent=2, ensure_ascii=False)
 
-verified_count = sum(1 for r in results if r.get("idor_likely"))
-print(f"[T1] 자동 검증: {len(results)}건 테스트, {verified_count}건 IDOR 의심")
+# 결과 요약
+high_count = sum(1 for r in results if r.get("idor_confidence") == "high")
+med_count = sum(1 for r in results if r.get("idor_confidence") == "medium")
+print(f"[T1] 자동 검증: {len(results)}건 테스트, IDOR 확신 {high_count}건 / 의심 {med_count}건")
 PYEOF
   else
     log "Phase 3.5: 인증 토큰 미설정 — 자동 검증 스킵 (수동 검증 필요)"

@@ -111,6 +111,18 @@ else
   echo "  ⚠ Go 없음 — subfinder, httpx, katana 스킵 (Track 1 일부 기능 제한)"
 fi
 
+# Playwright (IDOR 토큰 자동 추출용)
+if python3 -c "import playwright" 2>/dev/null; then
+  echo "  ✓ playwright"
+else
+  echo "  playwright 설치 중..."
+  if pip3 install playwright 2>/dev/null && playwright install chromium 2>/dev/null; then
+    echo "  ✓ playwright + chromium 설치 완료"
+  else
+    echo "  ⚠ playwright 설치 실패 — 토큰 수동 추출 필요"
+  fi
+fi
+
 # Track 2 도구: semgrep, pip-audit
 echo "  Python 보안 도구 설치 중..."
 for pip_tool in semgrep pip-audit; do
@@ -152,6 +164,7 @@ done
 # ─── 6. Cron 등록 ───
 echo "[6/7] Cron 등록..."
 CRON_MAIN="0 6 * * * $BASE/scripts/orchestrator.sh >> $BASE/logs/cron.log 2>&1"
+CRON_TOKEN="0 5 * * * python3 $BASE/scripts/token_manager.py refresh-all >> $BASE/logs/cron-token.log 2>&1"
 CRON_DISCOVER="0 8 * * 1 $BASE/scripts/discover_targets.sh >> $BASE/logs/cron-discover.log 2>&1"
 CRON_TUNE="0 9 1 * * $BASE/scripts/tune_prompts.sh >> $BASE/logs/cron-tune.log 2>&1"
 
@@ -161,10 +174,12 @@ if echo "$CURRENT_CRON" | grep -qF "orchestrator.sh"; then
   echo "  이미 등록됨"
 else
   echo "$CURRENT_CRON
+$CRON_TOKEN
 $CRON_MAIN
 $CRON_DISCOVER
 $CRON_TUNE" | crontab -
   echo "  등록 완료:"
+  echo "    매일 05:00 — IDOR 토큰 자동 갱신"
   echo "    매일 06:00 — 3개 트랙 자동 실행"
   echo "    매주 월 08:00 — 신규 타겟 탐색"
   echo "    매월 1일 09:00 — 프롬프트 자동 튜닝"

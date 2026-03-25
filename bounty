@@ -275,21 +275,57 @@ PYEOF
     _prompt_first_run
     ;;
 
+  # ── 토큰 관리 ──
+  token|tokens)
+    python3 "$BASE/scripts/token_manager.py" status
+    ;;
+
+  token-extract)
+    DOMAIN="${2:-}"; LOGIN_URL="${3:-}"
+    if [[ -z "$DOMAIN" ]] || [[ -z "$LOGIN_URL" ]]; then
+      echo "사용법: ./bounty token-extract [domain] [login_url]"
+      echo "예시:   ./bounty token-extract api.example.com https://example.com/login"
+      exit 1
+    fi
+    python3 "$BASE/scripts/token_manager.py" extract --domain "$DOMAIN" --login-url "$LOGIN_URL"
+    ;;
+
+  token-refresh)
+    if [[ -n "$arg" ]]; then
+      python3 "$BASE/scripts/token_manager.py" refresh --domain "$arg"
+    else
+      python3 "$BASE/scripts/token_manager.py" refresh-all
+    fi
+    ;;
+
   # ── 도움말 ──
   help|*)
     echo ""
     echo -e "${BOLD}  🎯 Bounty Autopilot${RST}"
     echo ""
-    echo -e "  ${GRN}./bounty run${RST}          지금 즉시 실행"
-    echo -e "  ${GRN}./bounty status${RST}       대시보드 (한눈에 현황)"
-    echo -e "  ${GRN}./bounty list${RST}         검증 대기 건 목록"
-    echo -e "  ${GRN}./bounty show N${RST}       N번 건 상세 + 리포트 전문"
-    echo -e "  ${GRN}./bounty verify N${RST}     재현 성공 → 검증 완료"
-    echo -e "  ${GRN}./bounty reject N${RST}     FP → 제거"
-    echo -e "  ${GRN}./bounty submit N${RST}     플랫폼 제출 완료"
-    echo -e "  ${GRN}./bounty paid N${RST}       바운티 수령 🎉"
-    echo -e "  ${GRN}./bounty log${RST}          오늘 실행 로그"
-    echo -e "  ${GRN}./bounty add${RST}          타겟 추가 가이드"
+    echo -e "  ${BOLD}실행${RST}"
+    echo -e "  ${GRN}./bounty run${RST}              지금 즉시 실행"
+    echo -e "  ${GRN}./bounty status${RST}           대시보드 (한눈에 현황)"
+    echo -e "  ${GRN}./bounty log${RST}              오늘 실행 로그"
+    echo ""
+    echo -e "  ${BOLD}리뷰${RST}"
+    echo -e "  ${GRN}./bounty list${RST}             검증 대기 건 목록"
+    echo -e "  ${GRN}./bounty show N${RST}           N번 건 상세 + 리포트"
+    echo -e "  ${GRN}./bounty verify N${RST}         재현 성공 → 검증 완료"
+    echo -e "  ${GRN}./bounty reject N${RST}         FP → 제거"
+    echo -e "  ${GRN}./bounty submit N${RST}         플랫폼 제출 완료"
+    echo -e "  ${GRN}./bounty paid N${RST}           바운티 수령 🎉"
+    echo ""
+    echo -e "  ${BOLD}타겟${RST}"
+    echo -e "  ${GRN}./bounty add${RST}              타겟 추가 가이드"
+    echo -e "  ${GRN}./bounty add-idor${RST}         IDOR 타겟 추가"
+    echo -e "  ${GRN}./bounty add-oss${RST}          OSS 타겟 추가"
+    echo -e "  ${GRN}./bounty add-web3${RST}         Web3 타겟 추가"
+    echo ""
+    echo -e "  ${BOLD}토큰 (IDOR)${RST}"
+    echo -e "  ${GRN}./bounty token${RST}            토큰 상태 (만료 시간)"
+    echo -e "  ${GRN}./bounty token-extract${RST}    브라우저로 토큰 추출"
+    echo -e "  ${GRN}./bounty token-refresh${RST}    만료 토큰 자동 갱신"
     echo ""
     ;;
 
