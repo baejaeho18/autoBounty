@@ -56,15 +56,15 @@ python3 scripts/review.py --stats
 
 ## 실행 스케줄
 
-| 요일 | Track 1 (IDOR) | Track 2 (OSS) | Track 3 (Web3) |
-|------|:-:|:-:|:-:|
-| 월 | ✓ | ✓ | |
-| 화 | ✓ | | ✓ |
-| 수 | ✓ | | |
-| 목 | ✓ | ✓ | |
-| 금 | ✓ | | ✓ |
-| 토 | ✓ | | |
-| 일 | ✓ | | |
+3개 트랙 모두 **매일** 실행됩니다. Track 2/3은 git diff로 변경이 감지된 레포만 분석하므로 불필요한 비용이 발생하지 않습니다.
+
+| Track | 실행 주기 | 스킵 조건 |
+|-------|----------|-----------|
+| Track 1 (IDOR) | 매일 | 엔드포인트 없으면 스킵 |
+| Track 2 (OSS) | 매일 | git pull 후 변경 없으면 스킵 |
+| Track 3 (Web3) | 매일 | git pull 후 변경 없으면 스킵 |
+
+config.json의 `enabled: false`로 개별 트랙 비활성화 가능.
 
 ## 디렉토리 구조
 
@@ -94,9 +94,18 @@ python3 scripts/review.py --stats
 
 ## 비용 추정
 
-- Claude Code API: 타겟당 약 $0.5~2 / 실행
-- 10개 타겟 × 매일 = 월 $150~600
+- Claude Code API: 타겟당 약 $0.5~2 / 실행 (변경 없는 레포는 $0)
+- 10개 타겟 × 매일 = 월 $150~600 (실제로는 변경 감지 스킵으로 더 적음)
 - 첫 바운티 하나면 충분히 커버됨
+
+## 주요 개선 사항
+
+- 모든 트랙 매일 실행 (변경 감지 기반 자동 스킵으로 비용 절약)
+- Claude JSON 출력 안정화 (extract_json.py 후처리)
+- Track 1 IDOR 자동 검증 (인증 토큰 2개로 실제 curl 테스트)
+- 중복 실행 방지 (lock file)
+- config.json 기반 rate limit 적용
+- 경로 자동 감지 (어디에 설치해도 동작)
 
 ## 주의사항
 

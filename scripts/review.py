@@ -14,7 +14,9 @@ Human Review Queue — 발견사항 검토 + 상태 관리 CLI
 """
 import json, os, sys, argparse
 
-DB_PATH = os.path.expanduser("~/bounty-autopilot/data/findings.json")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(SCRIPT_DIR)
+DB_PATH = os.path.join(BASE_DIR, "data", "findings.json")
 
 COLORS = {
     "CRITICAL": "\033[91m", "HIGH": "\033[93m",

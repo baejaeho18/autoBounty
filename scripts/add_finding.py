@@ -5,7 +5,9 @@ findings.json에 발견사항 추가 (중복 제거 포함)
 import json, hashlib, argparse, os
 from datetime import datetime
 
-DB_PATH = os.path.expanduser("~/bounty-autopilot/data/findings.json")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(SCRIPT_DIR)
+DB_PATH = os.path.join(BASE_DIR, "data", "findings.json")
 
 def load_db():
     if os.path.exists(DB_PATH):

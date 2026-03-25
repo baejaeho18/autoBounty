@@ -8,7 +8,8 @@ set -euo pipefail
 echo "🎯 Bounty Autopilot 설치 시작"
 echo ""
 
-BASE="$HOME/bounty-autopilot"
+# 프로젝트 루트 자동 감지
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── 1. 디렉토리 ───
 echo "[1/6] 디렉토리 생성..."
