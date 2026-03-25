@@ -88,22 +88,74 @@ except: print(0)
     log "WARN: slither 미설치 — 정적 분석 스킵"
   fi
 
-  # Phase 3: Claude 심층 DeFi 분석
-  log "Phase 3: Claude DeFi 보안 분석"
+  # Phase 3: Slither TP/FP 판별 + 실제 코드 기반 분석
+  log "Phase 3: SAST→LLM 정밀 분석 (실제 코드 포함)"
 
-  SOL_FILES=$(find "$REPO_DIR" -name "*.sol" -not -path "*/node_modules/*" -not -path "*/lib/*" 2>/dev/null | head -15 | tr '\n' ',' || echo "없음")
+  # 실제 Solidity 코드 추출 (파일명 목록이 아니라 코드 내용)
+  SOL_CODE=$(python3 - "$REPO_DIR" <<'PYEOF'
+import os, sys, glob
 
-  SLITHER_SUMMARY=""
+repo_dir = sys.argv[1]
+output = []
+total_chars = 0
+
+for fpath in sorted(glob.glob(os.path.join(repo_dir, '**', '*.sol'), recursive=True)):
+    if '/node_modules/' in fpath or '/lib/' in fpath or '/test/' in fpath or '/mock/' in fpath:
+        continue
+    try:
+        with open(fpath) as f:
+            content = f.read()
+    except:
+        continue
+    rel = os.path.relpath(fpath, repo_dir)
+    truncated = content[:6000]
+    if len(content) > 6000:
+        truncated += f"\n// ... truncated ({len(content)} chars total)"
+    output.append(f"### {rel}\n```solidity\n{truncated}\n```\n")
+    total_chars += len(truncated)
+    if total_chars > 40000 or len(output) >= 12:
+        break
+
+print("\n".join(output) if output else "Solidity 파일 없음")
+PYEOF
+  )
+
+  # Slither 결과에서 코드 위치 포함한 상세 정보
+  SLITHER_DETAIL=""
   if [[ -f "$SLITHER_FILE" ]]; then
-    SLITHER_SUMMARY=$(python3 -c "
-import json
+    SLITHER_DETAIL=$(python3 - "$SLITHER_FILE" <<'PYEOF'
+import json, sys
+
 try:
-    with open('$SLITHER_FILE') as f:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
-    for d in data.get('results',{}).get('detectors',[])[:10]:
-        print(f\"- [{d.get('impact','?')}] {d.get('check','?')}: {d.get('description','')[:100]}\")
-except: pass
-" 2>/dev/null || echo "Slither 결과 없음")
+except:
+    print("Slither 결과 없음")
+    sys.exit(0)
+
+results = data.get('results', {}).get('detectors', [])
+if not results:
+    print("Slither 결과 0건")
+    sys.exit(0)
+
+parts = []
+for d in results[:15]:
+    impact = d.get('impact', '?')
+    check = d.get('check', '?')
+    desc = d.get('description', '')[:200]
+    elements = d.get('elements', [])
+    locations = []
+    for e in elements[:3]:
+        src = e.get('source_mapping', {})
+        fname = src.get('filename_short', '?')
+        lines = src.get('lines', [])
+        line_str = f"{lines[0]}-{lines[-1]}" if lines else "?"
+        locations.append(f"{fname}:{line_str}")
+    parts.append(f"- [{impact}] {check}: {desc}\n  Location: {', '.join(locations)}")
+
+print("\n".join(parts))
+PYEOF
+    )
   fi
 
   ANALYSIS_FILE="$TRACK_DIR/analysis/${NAME}_${DATE}.json"
@@ -111,24 +163,31 @@ except: pass
   claude -p "
 당신은 시니어 스마트 컨트랙트 보안 연구원입니다.
 프로토콜: $NAME
-컨트랙트 파일: $SOL_FILES
 
-Slither 결과 요약:
-$SLITHER_SUMMARY
+## 실제 컨트랙트 코드:
+$SOL_CODE
 
-다음을 분석하세요:
-1. Reentrancy 가능 지점 (external call 후 상태 변경)
-2. 접근 제어 누락 (onlyOwner 등 없는 민감 함수)
-3. Flash loan 공격 벡터 (가격 오라클 조작 가능성)
-4. 정수 연산 오류 (overflow/underflow, 반올림 오차)
-5. 초기화 함수 재호출 가능성 (프록시 패턴)
-6. 자금 인출 로직의 잔액 계산 오류
-7. 거버넌스 공격 (투표 조작, 타임락 우회)
+## Slither 정적 분석 결과:
+$SLITHER_DETAIL
 
-중요: Solidity 0.8+ 기본 overflow 보호 등 프레임워크 보호로 막히는 건 제외.
-OpenZeppelin 표준 구현 그대로 사용하는 부분도 제외 (false positive 줄이기).
+위 코드를 직접 읽고 다음을 분석하세요:
 
-결과를 JSON으로만 출력:
+1. Slither 결과 각각에 대해: 실제 코드를 확인하고 TP인지 FP인지 판별
+2. Slither가 못 잡은 추가 취약점:
+   - Reentrancy (external call 후 상태 변경)
+   - 접근 제어 누락 (onlyOwner 등 없는 민감 함수)
+   - Flash loan 공격 벡터 (가격 오라클 조작)
+   - 정수 연산 반올림 오차로 인한 자금 유출
+   - 초기화 함수 재호출 (프록시 패턴)
+   - 자금 인출 잔액 계산 오류
+   - 거버넌스 공격 (투표 조작, 타임락 우회)
+
+중요:
+- Solidity 0.8+ 기본 overflow 보호로 막히는 건 제외
+- OpenZeppelin 표준 구현 그대로인 부분 제외
+- 실제 코드를 근거로 판단 — 추측으로 취약점 만들지 마세요
+
+JSON으로만 출력:
 {
   \"protocol\": \"$NAME\",
   \"date\": \"$DATE\",
@@ -136,8 +195,10 @@ OpenZeppelin 표준 구현 그대로 사용하는 부분도 제외 (false positi
     {
       \"type\": \"취약점 유형\",
       \"severity\": \"CRITICAL/HIGH/MEDIUM/LOW\",
+      \"source\": \"slither_tp 또는 manual_review\",
       \"contract\": \"컨트랙트명\",
       \"function\": \"함수명\",
+      \"vulnerable_code\": \"취약한 코드 라인 (실제 코드에서 인용)\",
       \"description\": \"상세 설명\",
       \"attack_scenario\": \"공격 시나리오\",
       \"estimated_impact_usd\": \"예상 피해 규모\",
