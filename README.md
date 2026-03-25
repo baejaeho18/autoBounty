@@ -22,6 +22,9 @@ Google OSS VRP 대상 레포지토리에서 ReDoS(Regular Expression Denial of S
         ↓
   리포트 생성 (CWE-1333)
         ↓
+  자동 commit & push → Discord 알림
+  (리포트 요약 + 취약 파일 GitHub 링크)
+        ↓
   ⏳ 수동 검증 (review.py)
 ```
 
@@ -47,6 +50,23 @@ python3 scripts/review.py --stats     # 전체 통계
 bash scripts/orchestrator.sh
 ```
 
+## Discord 알림
+
+취약점 발견 시 Discord로 실시간 알림이 전송됩니다:
+- 리포트 요약 (프로젝트명, 심각도, 발견 건수)
+- 취약한 파일의 GitHub 링크 (라인 번호 포함)
+- 리포트 전문 GitHub 링크
+
+설정: `config.json` → `general.notification.discord_webhook`
+
+## 자동화 흐름
+
+리포트가 생성되면 자동으로:
+1. `data/track4/reports/` 에 저장
+2. git commit & push → GitHub에 리포트 업로드
+3. Discord 웹훅으로 요약 + GitHub 링크 전송
+4. `findings.json`에 발견사항 등록 → `review.py`로 검토 가능
+
 ## 지원 언어
 
 | 언어 | 추출 패턴 |
@@ -70,24 +90,26 @@ bash scripts/orchestrator.sh
 
 ```
 autoBounty/
-├── config.json                 # 설정
+├── config.json                 # 설정 (Discord 웹훅 포함)
 ├── scripts/
 │   ├── orchestrator.sh         # cron 진입점
-│   ├── track4_redos.sh         # ReDoS 파이프라인
+│   ├── track4_redos.sh         # ReDoS 파이프라인 (스캔→리포트→push→알림)
 │   ├── fetch_oss_repos.py      # 레포 목록 수집
 │   ├── redos_scanner.py        # ReDoS 정적 분석 엔진
+│   ├── notify_discord.py       # Discord 웹훅 알림 (리포트 요약 + GitHub 링크)
+│   ├── status.py               # 진행 상황 모니터
 │   ├── extract_json.py         # Claude JSON 출력 파서
 │   ├── add_finding.py          # 발견사항 DB 추가
-│   ├── aggregate_notify.py     # 결과 취합 + 알림
+│   ├── aggregate_notify.py     # 일일 결과 취합 + 알림
 │   └── review.py               # 수동 검토 CLI
 ├── data/
 │   ├── targets_oss.json        # 대상 레포 목록
 │   ├── findings.json           # 발견사항 DB
-│   └── track4/                 # 스캔 결과
-│       ├── repos/              # 클론된 레포
-│       ├── scans/              # 정적 분석 결과
-│       ├── analysis/           # LLM 분석 결과
-│       └── reports/            # 리포트
+│   └── track4/
+│       ├── repos/              # 클론된 레포 (.gitignore)
+│       ├── scans/              # 정적 분석 결과 (.gitignore)
+│       ├── analysis/           # LLM 분석 결과 (.gitignore)
+│       └── reports/            # 리포트 (git 추적됨, push됨)
 └── logs/                       # 실행 로그
 ```
 

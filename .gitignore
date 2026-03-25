@@ -1,1 +1,17 @@
 __pycache__/
+
+# 클론된 외부 레포 (용량이 크므로 제외)
+data/track4/repos/
+
+# 스캔/분석 중간 결과 (JSON, 매 실행마다 재생성)
+data/track4/scans/
+data/track4/analysis/
+
+# 리포트는 포함 (git push로 공유)
+# data/track4/reports/ ← 포함됨
+
+# 로그
+logs/
+
+# 락 파일
+.orchestrator.lock

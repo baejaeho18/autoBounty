@@ -8,7 +8,7 @@
 #   2. 각 레포 Clone/Pull
 #   3. 정적 분석으로 위험한 정규식 탐지
 #   4. LLM 정밀 분석 (TP/FP 판별)
-#   5. 리포트 생성
+#   5. 리포트 생성 → git commit & push → Discord 알림
 # ============================================================
 set -euo pipefail
 
@@ -20,11 +20,46 @@ CONFIG="$BASE/config.json"
 EXTRACT_JSON="$BASE/scripts/extract_json.py"
 REDOS_SCANNER="$BASE/scripts/redos_scanner.py"
 FETCH_REPOS="$BASE/scripts/fetch_oss_repos.py"
+NOTIFY_DISCORD="$BASE/scripts/notify_discord.py"
 DATE=$(date +%Y-%m-%d)
+BRANCH=$(git -C "$BASE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
 
 mkdir -p "$TRACK_DIR"/{repos,scans,analysis,reports}
 
 log() { echo "[T4 $(date '+%H:%M:%S')] $1"; }
+
+# ──────────────────────────────────────
+# 헬퍼: 리포트 git commit + push (재시도 포함)
+# ──────────────────────────────────────
+commit_and_push_report() {
+  local report_file="$1"
+  local project_name="$2"
+
+  local rel_path
+  rel_path=$(python3 -c "import os; print(os.path.relpath('$report_file', '$BASE'))")
+
+  git -C "$BASE" add "$rel_path"
+  git -C "$BASE" commit -m "Add ReDoS report: ${project_name} (${DATE})" 2>/dev/null || {
+    log "WARN: git commit 실패 (변경 없음?)"
+    return 1
+  }
+
+  # push with exponential backoff retry
+  local attempt=0
+  local wait_sec=2
+  while [[ $attempt -lt 4 ]]; do
+    if git -C "$BASE" push -u origin "$BRANCH" 2>/dev/null; then
+      log "git push 완료: $rel_path"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    log "WARN: git push 실패 (시도 $attempt/4) — ${wait_sec}초 후 재시도"
+    sleep $wait_sec
+    wait_sec=$((wait_sec * 2))
+  done
+  log "ERROR: git push 4회 실패"
+  return 1
+}
 
 # ──────────────────────────────────────
 # Phase 0: 레포 목록 업데이트
@@ -217,7 +252,7 @@ except: print(0)
   fi
 
   # ──────────────────────────────────────
-  # Phase 4: 리포트 생성 (TP가 있는 경우)
+  # Phase 4: 리포트 생성 → commit & push → Discord 알림
   # ──────────────────────────────────────
   if [[ -f "$ANALYSIS_FILE" ]]; then
     TP_HIGH_COUNT=$(python3 -c "
@@ -275,7 +310,6 @@ import json, sys, os
 
 analysis_file, name, report_file, base_dir = sys.argv[1:5]
 
-# 분석 결과를 add_finding.py 호환 형식으로 변환
 try:
     with open(analysis_file) as f:
         data = json.load(f)
@@ -290,7 +324,6 @@ tp_findings = [
 if not tp_findings:
     sys.exit(0)
 
-# add_finding.py 호환 형식 생성
 compat = {
     "project": name,
     "findings": [
@@ -309,7 +342,6 @@ compat_file = analysis_file.replace(".json", "_compat.json")
 with open(compat_file, "w") as f:
     json.dump(compat, f, indent=2, ensure_ascii=False)
 
-# add_finding.py 호출
 os.system(
     f'python3 {base_dir}/scripts/add_finding.py '
     f'--track redos --domain {name} '
@@ -318,6 +350,21 @@ os.system(
 PYEOF
 
         log "리포트 저장: $REPORT_FILE"
+
+        # ── git commit & push ──
+        log "Phase 4a: 리포트 git commit & push"
+        commit_and_push_report "$REPORT_FILE" "$NAME"
+
+        # ── Discord 알림 ──
+        log "Phase 4b: Discord 알림 전송"
+        python3 "$NOTIFY_DISCORD" \
+          --report "$REPORT_FILE" \
+          --project "$NAME" \
+          --repo-url "$REPO_URL" \
+          --analysis "$ANALYSIS_FILE" \
+          --branch "$BRANCH" \
+          2>/dev/null || log "WARN: Discord 알림 실패"
+
       else
         log "WARN: 리포트 생성 실패"
       fi

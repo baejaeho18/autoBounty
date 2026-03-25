@@ -3,12 +3,13 @@
     "findings_db": "data/findings.json",
     "log_dir": "logs",
     "notification": {
-      "discord_webhook": "YOUR_DISCORD_WEBHOOK_URL",
+      "discord_webhook": "https://discord.com/api/webhooks/1486252772201594890/-QDDvrJLQu7EcxbSBev06yBsjgwnD1a5EW3WYKLROJCA0N2UjUnkz5SkavIQOFy0XVrh",
       "notify_on": [
         "high",
         "critical"
       ]
-    }
+    },
+    "github_repo": "baejaeho18/autoBounty"
   },
   "track_redos": {
     "enabled": true,
