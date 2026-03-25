@@ -49,20 +49,54 @@ setup.sh가 수행하는 작업:
   - 매주 월 08:00 — 타겟 자동 탐색 (`discover_targets.sh`)
   - 매월 1일 09:00 — 프롬프트 자동 튜닝 (`tune_prompts.sh`)
 
-### 2.2 API 키 설정
+### 2.2 Claude 로그인 (Claude Max)
+
+Claude API 키 대신 **Claude Max 구독** ($100/월 또는 $200/월)을 사용합니다.
+`claude -p` 명령어가 Max 크레딧으로 실행됩니다.
 
 ```bash
-# Claude API 키 (필수)
-echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
+# Claude Code CLI 설치
+npm install -g @anthropic-ai/claude-code
 
-# Discord Webhook (알림용)
-# config.json의 discord_webhook 값을 실제 URL로 변경
+# Max 구독 계정으로 로그인 (1회만 하면 됨)
+claude login
+
+# 확인
+claude -p "hello"
 ```
 
-**ANTHROPIC_API_KEY 확인 방법:**
-1. https://console.anthropic.com 로그인
-2. 좌측 메뉴 → API Keys
-3. Create Key → 복사
+> **로그인은 1회만 하면 됩니다.** 인증 토큰이 `~/.claude/`에 저장되어
+> 이후 `claude -p` 호출 및 cron 자동 실행 모두 로그인 없이 동작합니다.
+>
+> **주의:** `ANTHROPIC_API_KEY` 환경변수가 설정되어 있으면 API 종량제로 과금됩니다.
+> Max를 사용하려면 반드시 제거하세요:
+> ```bash
+> unset ANTHROPIC_API_KEY
+> # ~/.bashrc에서도 해당 줄이 있으면 삭제
+> ```
+>
+> **$200/월 플랜 권장** — 5배 사용량 제한으로, 다수 타겟 자동 스캔에 적합합니다.
+
+### 2.3 도구 권한 설정 (자동화용)
+
+프로젝트에 `.claude/settings.json`이 포함되어 있어, Claude가 코드 분석 시
+파일 읽기(Read), 검색(Grep, Glob) 도구를 자동 허용합니다.
+수동 설정은 불필요합니다.
+
+```json
+// .claude/settings.json (이미 포함됨)
+{
+  "permissions": {
+    "allow": ["Read", "Grep", "Glob", "Bash(ls:*)", "Bash(find:*)"],
+    "deny": ["Edit", "Write", "Bash(rm:*)", "Bash(curl:*)", "Bash(git push:*)"]
+  }
+}
+```
+
+- **allow**: Claude가 코드 파일을 읽고, 패턴 검색하고, 호출 체인을 추적 가능
+- **deny**: 파일 수정, 삭제, 네트워크 요청, git push 등 위험 작업은 차단
+
+### 2.4 Discord Webhook 설정
 
 **Discord Webhook 만드는 방법:**
 1. Discord 서버에서 채널 우클릭 → 채널 편집
