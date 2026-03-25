@@ -4,33 +4,86 @@
     "log_dir": "logs",
     "notification": {
       "discord_webhook": "YOUR_DISCORD_WEBHOOK_URL",
-      "notify_on": ["high", "critical"]
+      "notify_on": [
+        "high",
+        "critical"
+      ]
     },
     "rate_limit": {
       "requests_per_second": 1,
       "pause_between_targets_sec": 120
     }
   },
-
   "track1_idor": {
     "enabled": true,
     "targets_file": "data/targets_idor.json",
-    "tools": ["subfinder", "httpx", "katana"],
-    "auto_phases": ["recon", "endpoint_extract", "idor_candidates", "auto_verify", "draft_report"],
-    "human_phases": ["manual_verify", "submit_report"]
+    "tools": [
+      "subfinder",
+      "httpx",
+      "katana"
+    ],
+    "auto_phases": [
+      "recon",
+      "endpoint_extract",
+      "idor_candidates",
+      "auto_verify",
+      "draft_report"
+    ],
+    "human_phases": [
+      "manual_verify",
+      "submit_report"
+    ]
   },
-
   "track2_oss": {
     "enabled": true,
     "targets_file": "data/targets_oss.json",
-    "auto_phases": ["clone_update", "security_review", "semgrep_scan", "dependency_audit", "deep_analysis", "draft_report"],
-    "human_phases": ["verify_poc", "submit_disclosure"]
+    "auto_phases": [
+      "clone_update",
+      "security_review",
+      "semgrep_scan",
+      "dependency_audit",
+      "deep_analysis",
+      "draft_report"
+    ],
+    "human_phases": [
+      "verify_poc",
+      "submit_disclosure"
+    ]
   },
-
   "track3_web3": {
     "enabled": true,
     "targets_file": "data/targets_web3.json",
-    "auto_phases": ["clone_update", "slither_scan", "claude_audit", "poc_generation", "draft_report"],
-    "human_phases": ["verify_poc", "submit_immunefi"]
+    "auto_phases": [
+      "clone_update",
+      "slither_scan",
+      "claude_audit",
+      "poc_generation",
+      "draft_report"
+    ],
+    "human_phases": [
+      "verify_poc",
+      "submit_immunefi"
+    ]
+  },
+  "track4_redos": {
+    "enabled": true,
+    "targets_file": "data/targets_oss.json",
+    "source": "https://github.com/google/bughunters/tree/main/oss-repository-tier",
+    "auto_phases": [
+      "fetch_repo_list",
+      "clone_update",
+      "redos_static_scan",
+      "llm_triage",
+      "draft_report"
+    ],
+    "human_phases": [
+      "verify_poc",
+      "submit_disclosure"
+    ],
+    "scan_options": {
+      "min_severity": "LOW",
+      "empirical_test": true,
+      "skip_go_repos": false
+    }
   }
 }

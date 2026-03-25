@@ -70,6 +70,16 @@ else
   log "Track 3: config에서 비활성화됨"
 fi
 
+
+# --- Track 4: ReDoS (매일 — OSS VRP 대상 정규식 취약점 스캔) ---
+if [[ "$(track_enabled track4_redos)" == "True" ]]; then
+  log "Track 4: ReDoS 스캐너 파이프라인 시작"
+  bash "$BASE/scripts/track4_redos.sh" >> "$LOG_DIR/$DATE-track4.log" 2>&1 &
+  PIDS+=($!)
+else
+  log "Track 4: config에서 비활성화됨"
+fi
+
 # 모든 트랙 완료 대기
 FAIL=0
 for pid in "${PIDS[@]}"; do

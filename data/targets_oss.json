@@ -1,1 +1,457 @@
-[]
+[
+  {
+    "name": "angular_angular",
+    "repo_url": "https://github.com/angular/angular",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "typescript"
+  },
+  {
+    "name": "angular_dev-infra",
+    "repo_url": "https://github.com/angular/dev-infra",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "typescript"
+  },
+  {
+    "name": "angular_angular-cli",
+    "repo_url": "https://github.com/angular/angular-cli",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "typescript"
+  },
+  {
+    "name": "angular_components",
+    "repo_url": "https://github.com/angular/components",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "typescript"
+  },
+  {
+    "name": "bazelbuild_bazel",
+    "repo_url": "https://github.com/bazelbuild/bazel",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "bazelbuild_bazel-central-registry",
+    "repo_url": "https://github.com/bazelbuild/bazel-central-registry",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "bazelbuild_continuous-integration",
+    "repo_url": "https://github.com/bazelbuild/continuous-integration",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "bazelbuild_remote-apis-sdks",
+    "repo_url": "https://github.com/bazelbuild/remote-apis-sdks",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "google_gson",
+    "repo_url": "https://github.com/google/gson",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "protocolbuffers_protobuf",
+    "repo_url": "https://github.com/protocolbuffers/protobuf",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "openthread_openthread",
+    "repo_url": "https://github.com/openthread/openthread",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "google_guava",
+    "repo_url": "https://github.com/google/guava",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "google_gvisor",
+    "repo_url": "https://github.com/google/gvisor",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "flutter_flutter",
+    "repo_url": "https://github.com/flutter/flutter",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "dart"
+  },
+  {
+    "name": "flutter_devtools",
+    "repo_url": "https://github.com/flutter/devtools",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "dart"
+  },
+  {
+    "name": "GoogleContainerTools_distroless",
+    "repo_url": "https://github.com/GoogleContainerTools/distroless",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "tink-crypto_tink-cc",
+    "repo_url": "https://github.com/tink-crypto/tink-cc",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "tink-crypto_tink-java",
+    "repo_url": "https://github.com/tink-crypto/tink-java",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "tink-crypto_tink-go",
+    "repo_url": "https://github.com/tink-crypto/tink-go",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_go",
+    "repo_url": "https://github.com/golang/go",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_net",
+    "repo_url": "https://github.com/golang/net",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_vscode-go",
+    "repo_url": "https://github.com/golang/vscode-go",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_crypto",
+    "repo_url": "https://github.com/golang/crypto",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_image",
+    "repo_url": "https://github.com/golang/image",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_sync",
+    "repo_url": "https://github.com/golang/sync",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_text",
+    "repo_url": "https://github.com/golang/text",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_tools",
+    "repo_url": "https://github.com/golang/tools",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "golang_sys",
+    "repo_url": "https://github.com/golang/sys",
+    "tier": "TIER_OT0",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "project-oak_oak",
+    "repo_url": "https://github.com/project-oak/oak",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "google_fonts",
+    "repo_url": "https://github.com/google/fonts",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "google_benchmark",
+    "repo_url": "https://github.com/google/benchmark",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "google_clusterfuzz",
+    "repo_url": "https://github.com/google/clusterfuzz",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "google_re2",
+    "repo_url": "https://github.com/google/re2",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "google_go-github",
+    "repo_url": "https://github.com/google/go-github",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "google_osv-scanner",
+    "repo_url": "https://github.com/google/osv-scanner",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "cdapio_cdap",
+    "repo_url": "https://github.com/cdapio/cdap",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "cdapio_cdap-ui",
+    "repo_url": "https://github.com/cdapio/cdap-ui",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "openxla_xla",
+    "repo_url": "https://github.com/openxla/xla",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "google_go-cloud",
+    "repo_url": "https://github.com/google/go-cloud",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "google_closure-compiler",
+    "repo_url": "https://github.com/google/closure-compiler",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "googleforgames_agones",
+    "repo_url": "https://github.com/googleforgames/agones",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "go"
+  },
+  {
+    "name": "google_filament",
+    "repo_url": "https://github.com/google/filament",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "google_flatbuffers",
+    "repo_url": "https://github.com/google/flatbuffers",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "google_zerocopy",
+    "repo_url": "https://github.com/google/zerocopy",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "rust"
+  },
+  {
+    "name": "google_shaderc",
+    "repo_url": "https://github.com/google/shaderc",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "jax-ml_jax",
+    "repo_url": "https://github.com/jax-ml/jax",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "google_adk-python",
+    "repo_url": "https://github.com/google/adk-python",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "shaka-project_shaka-player",
+    "repo_url": "https://github.com/shaka-project/shaka-player",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "javascript"
+  },
+  {
+    "name": "googlemaps_android-maps-utils",
+    "repo_url": "https://github.com/googlemaps/android-maps-utils",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "unknown"
+  },
+  {
+    "name": "google_site-kit-wp",
+    "repo_url": "https://github.com/google/site-kit-wp",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "php"
+  },
+  {
+    "name": "google_libphonenumber",
+    "repo_url": "https://github.com/google/libphonenumber",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "java"
+  },
+  {
+    "name": "google_brotli",
+    "repo_url": "https://github.com/google/brotli",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "Polymer_polymer",
+    "repo_url": "https://github.com/Polymer/polymer",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "javascript"
+  },
+  {
+    "name": "google_XNNPACK",
+    "repo_url": "https://github.com/google/XNNPACK",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "cpp"
+  },
+  {
+    "name": "google-gemini_gemini-cli",
+    "repo_url": "https://github.com/google-gemini/gemini-cli",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_CLOUD_VRP",
+    "language": "typescript"
+  },
+  {
+    "name": "puppeteer_puppeteer",
+    "repo_url": "https://github.com/puppeteer/puppeteer",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "javascript"
+  },
+  {
+    "name": "tensorflow_tflite-micro",
+    "repo_url": "https://github.com/tensorflow/tflite-micro",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "tensorflow_serving",
+    "repo_url": "https://github.com/tensorflow/serving",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "tensorflow_models",
+    "repo_url": "https://github.com/tensorflow/models",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "tensorflow_tfjs",
+    "repo_url": "https://github.com/tensorflow/tfjs",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "tensorflow_tensorflow",
+    "repo_url": "https://github.com/tensorflow/tensorflow",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "python"
+  },
+  {
+    "name": "dart-lang_sdk",
+    "repo_url": "https://github.com/dart-lang/sdk",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "dart"
+  },
+  {
+    "name": "dart-lang_tools",
+    "repo_url": "https://github.com/dart-lang/tools",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "dart"
+  },
+  {
+    "name": "dart-lang_test",
+    "repo_url": "https://github.com/dart-lang/test",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "dart"
+  },
+  {
+    "name": "dart-lang_build",
+    "repo_url": "https://github.com/dart-lang/build",
+    "tier": "TIER_OT1",
+    "scope": "SCOPE_OSS_VRP",
+    "language": "dart"
+  }
+]
