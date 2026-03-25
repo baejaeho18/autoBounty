@@ -88,72 +88,37 @@ except: print(0)
     log "WARN: slither 미설치 — 정적 분석 스킵"
   fi
 
-  # Phase 3: Slither TP/FP 판별 + 실제 코드 기반 분석
-  log "Phase 3: SAST→LLM 정밀 분석 (실제 코드 포함)"
+  # Phase 3: Slither TP/FP 판별 + 실제 코드 기반 분석 (Claude 직접 탐색)
+  log "Phase 3: SAST→LLM 정밀 분석 (Claude가 코드 직접 읽기)"
 
-  # 실제 Solidity 코드 추출 (파일명 목록이 아니라 코드 내용)
-  SOL_CODE=$(python3 - "$REPO_DIR" <<'PYEOF'
-import os, sys, glob
+  ALLOWED_TOOLS="Read,Grep,Glob,Bash(ls:*),Bash(head:*),Bash(wc:*),Bash(find:*)"
 
-repo_dir = sys.argv[1]
-output = []
-total_chars = 0
-
-for fpath in sorted(glob.glob(os.path.join(repo_dir, '**', '*.sol'), recursive=True)):
-    if '/node_modules/' in fpath or '/lib/' in fpath or '/test/' in fpath or '/mock/' in fpath:
-        continue
-    try:
-        with open(fpath) as f:
-            content = f.read()
-    except:
-        continue
-    rel = os.path.relpath(fpath, repo_dir)
-    truncated = content[:6000]
-    if len(content) > 6000:
-        truncated += f"\n// ... truncated ({len(content)} chars total)"
-    output.append(f"### {rel}\n```solidity\n{truncated}\n```\n")
-    total_chars += len(truncated)
-    if total_chars > 40000 or len(output) >= 12:
-        break
-
-print("\n".join(output) if output else "Solidity 파일 없음")
-PYEOF
-  )
-
-  # Slither 결과에서 코드 위치 포함한 상세 정보
-  SLITHER_DETAIL=""
+  # Slither 결과 요약만 프롬프트에 포함
+  SLITHER_SUMMARY=""
   if [[ -f "$SLITHER_FILE" ]]; then
-    SLITHER_DETAIL=$(python3 - "$SLITHER_FILE" <<'PYEOF'
+    SLITHER_SUMMARY=$(python3 - "$SLITHER_FILE" <<'PYEOF'
 import json, sys
-
 try:
     with open(sys.argv[1]) as f:
         data = json.load(f)
 except:
-    print("Slither 결과 없음")
-    sys.exit(0)
-
+    print("Slither 결과 없음"); sys.exit(0)
 results = data.get('results', {}).get('detectors', [])
 if not results:
-    print("Slither 결과 0건")
-    sys.exit(0)
-
-parts = []
+    print("Slither 결과 0건"); sys.exit(0)
 for d in results[:15]:
     impact = d.get('impact', '?')
     check = d.get('check', '?')
-    desc = d.get('description', '')[:200]
+    desc = d.get('description', '')[:150]
     elements = d.get('elements', [])
-    locations = []
+    locs = []
     for e in elements[:3]:
         src = e.get('source_mapping', {})
         fname = src.get('filename_short', '?')
         lines = src.get('lines', [])
         line_str = f"{lines[0]}-{lines[-1]}" if lines else "?"
-        locations.append(f"{fname}:{line_str}")
-    parts.append(f"- [{impact}] {check}: {desc}\n  Location: {', '.join(locations)}")
-
-print("\n".join(parts))
+        locs.append(f"{fname}:{line_str}")
+    print(f"- [{impact}] {check}: {desc}\n  Location: {', '.join(locs)}")
 PYEOF
     )
   fi
@@ -164,16 +129,23 @@ PYEOF
 당신은 시니어 스마트 컨트랙트 보안 연구원입니다.
 프로토콜: $NAME
 
-## 실제 컨트랙트 코드:
-$SOL_CODE
+프로젝트 경로: $REPO_DIR
+Slither 결과 파일: $SLITHER_FILE
 
-## Slither 정적 분석 결과:
-$SLITHER_DETAIL
+## Slither 정적 분석 결과 요약:
+$SLITHER_SUMMARY
 
-위 코드를 직접 읽고 다음을 분석하세요:
-
-1. Slither 결과 각각에 대해: 실제 코드를 확인하고 TP인지 FP인지 판별
-2. Slither가 못 잡은 추가 취약점:
+**지시사항:**
+1. Glob으로 프로젝트의 .sol 파일 목록을 확인하세요 (test/, mock/, node_modules/, lib/ 제외)
+2. Read로 각 컨트랙트 파일을 **전체** 읽으세요 (잘라내지 마세요)
+3. import문을 따라가서 상속 체인과 인터페이스도 확인하세요
+4. Slither 결과의 각 위치를 실제 코드에서 확인하고 TP/FP 판별하세요
+5. Grep으로 보안 패턴을 검색하세요:
+   - 외부 호출: '.call{', '.transfer(', '.send('
+   - 접근 제어: 'onlyOwner', 'require(msg.sender', 'modifier'
+   - 오라클: 'getPrice', 'latestAnswer', 'oracle'
+   - 프록시: 'initialize', 'initializer', 'delegatecall'
+6. Slither가 못 잡은 추가 취약점도 찾으세요:
    - Reentrancy (external call 후 상태 변경)
    - 접근 제어 누락 (onlyOwner 등 없는 민감 함수)
    - Flash loan 공격 벡터 (가격 오라클 조작)
@@ -182,12 +154,12 @@ $SLITHER_DETAIL
    - 자금 인출 잔액 계산 오류
    - 거버넌스 공격 (투표 조작, 타임락 우회)
 
-중요:
+**중요:**
 - Solidity 0.8+ 기본 overflow 보호로 막히는 건 제외
 - OpenZeppelin 표준 구현 그대로인 부분 제외
 - 실제 코드를 근거로 판단 — 추측으로 취약점 만들지 마세요
 
-JSON으로만 출력:
+최종 결과를 반드시 아래 JSON 형식으로만 출력하세요:
 {
   \"protocol\": \"$NAME\",
   \"date\": \"$DATE\",
@@ -199,14 +171,14 @@ JSON으로만 출력:
       \"contract\": \"컨트랙트명\",
       \"function\": \"함수명\",
       \"vulnerable_code\": \"취약한 코드 라인 (실제 코드에서 인용)\",
-      \"description\": \"상세 설명\",
+      \"description\": \"상세 설명 (어떤 파일의 어떤 코드를 확인했는지 포함)\",
       \"attack_scenario\": \"공격 시나리오\",
       \"estimated_impact_usd\": \"예상 피해 규모\",
       \"fix_suggestion\": \"수정 제안\"
     }
   ]
 }
-" 2>/dev/null | python3 "$EXTRACT_JSON" > "$ANALYSIS_FILE"
+" --allowedTools "$ALLOWED_TOOLS" 2>/dev/null | python3 "$EXTRACT_JSON" > "$ANALYSIS_FILE"
 
   # JSON 추출 실패 체크
   if ! python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); assert 'error' not in d" 2>/dev/null; then

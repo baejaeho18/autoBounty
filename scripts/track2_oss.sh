@@ -182,27 +182,54 @@ PYEOF
 
   SAST_ANALYSIS_FILE="$TRACK_DIR/analysis/${NAME}_sast_${DATE}.json"
 
+  ALLOWED_TOOLS="Read,Grep,Glob,Bash(ls:*),Bash(head:*),Bash(wc:*),Bash(find:*)"
+
   if [[ -n "$SEMGREP_WITH_CODE" ]] && [[ "$SEMGREP_WITH_CODE" != "Semgrep 결과 0건" ]] && [[ "$SEMGREP_WITH_CODE" != "Semgrep 결과 없음" ]]; then
-    log "Phase 3a: Semgrep 결과 TP/FP 판별 (LLM)"
+    log "Phase 3a: Semgrep 결과 TP/FP 판별 (LLM + 코드 직접 읽기)"
+
+    # Semgrep 결과 요약만 프롬프트에 포함, 실제 코드는 Claude가 직접 읽음
+    SEMGREP_SUMMARY=$(python3 - "$SEMGREP_FILE" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except:
+    print("Semgrep 결과 없음"); sys.exit(0)
+results = data.get("results", [])
+if not results:
+    print("Semgrep 결과 0건"); sys.exit(0)
+for r in results[:20]:
+    sev = r.get("extra", {}).get("severity", "?")
+    rule = r.get("check_id", "?")
+    path = r.get("path", "?")
+    start = r.get("start", {}).get("line", 0)
+    end = r.get("end", {}).get("line", 0)
+    msg = r.get("extra", {}).get("message", "")[:100]
+    print(f"- [{sev}] {rule} → {path}:{start}-{end} | {msg}")
+PYEOF
+    )
 
     claude -p "
-당신은 시니어 보안 연구원입니다. 아래는 $NAME ($LANG) 프로젝트의 Semgrep SAST 스캔 결과입니다.
-각 결과에 실제 코드가 포함되어 있습니다. >>> 표시가 문제 지점입니다.
+당신은 시니어 보안 연구원입니다. $NAME ($LANG) 프로젝트의 보안 감사를 수행합니다.
 
-$SEMGREP_WITH_CODE
+프로젝트 경로: $REPO_DIR
 
-각 Semgrep 결과에 대해 분석하세요:
-1. 이것이 실제 exploit 가능한 취약점인지 (True Positive), 아니면 오탐인지 (False Positive) 판별
-2. TP인 경우: 구체적인 공격 시나리오와 PoC
-3. FP인 경우: 왜 실제로는 안전한지 이유
+## Semgrep SAST 스캔 결과 요약:
+$SEMGREP_SUMMARY
 
-판별 기준:
+**지시사항:**
+1. 위 Semgrep 결과의 각 파일을 Read 도구로 직접 열어서 전체 코드를 확인하세요
+2. 취약점 주변 코드뿐 아니라, import문, 미들웨어, 인증 로직도 확인하세요
+3. 함수 호출 체인을 따라가며 외부 입력이 실제로 취약 함수에 도달하는지 추적하세요
+4. Grep으로 관련 함수/변수가 다른 파일에서 어떻게 사용되는지 검색하세요
+
+**판별 기준:**
 - 프레임워크 기본 보호 (Django CSRF, Rails strong params 등)로 막히면 FP
 - 입력이 이미 검증/이스케이프되어 있으면 FP
 - 내부 전용 코드이고 외부 입력이 닿지 않으면 FP
 - 실제 외부 입력이 검증 없이 위험 함수에 도달하면 TP
 
-JSON으로만 출력:
+최종 결과를 반드시 아래 JSON 형식으로만 출력하세요:
 {
   \"project\": \"$NAME\",
   \"date\": \"$DATE\",
@@ -213,13 +240,13 @@ JSON으로만 출력:
       \"verdict\": \"TP 또는 FP\",
       \"confidence\": \"HIGH/MEDIUM/LOW\",
       \"severity\": \"CRITICAL/HIGH/MEDIUM/LOW\",
-      \"reasoning\": \"판별 근거\",
-      \"attack_scenario\": \"TP일 때만: 공격 시나리오\",
+      \"reasoning\": \"판별 근거 (어떤 파일의 어떤 코드를 확인했는지 포함)\",
+      \"attack_scenario\": \"TP일 때만: 구체적 공격 시나리오\",
       \"poc\": \"TP일 때만: PoC 코드/curl\"
     }
   ]
 }
-" 2>/dev/null | python3 "$EXTRACT_JSON" > "$SAST_ANALYSIS_FILE"
+" --allowedTools "$ALLOWED_TOOLS" 2>/dev/null | python3 "$EXTRACT_JSON" > "$SAST_ANALYSIS_FILE"
   fi
 
   # ──────────────────────────────────────
@@ -232,80 +259,26 @@ JSON으로만 출력:
   if [[ "$IS_NEW_CLONE" == "false" ]] && [[ -f "$DIFF_FILE" ]] && [[ -s "$DIFF_FILE" ]]; then
     log "Phase 4: Diff 기반 변경 코드 보안 분석"
 
-    # diff가 너무 크면 잘라내기
-    DIFF_CONTENT=$(head -c 30000 "$DIFF_FILE")
-    DIFF_SIZE=$(wc -c < "$DIFF_FILE")
-
-    # 변경된 파일 중 보안 민감 파일 실제 내용 추출
-    SECURITY_CONTEXT=$(python3 - "$CHANGED_FILES_PATH" "$REPO_DIR" <<'PYEOF'
-import sys, os
-
-changed_file = sys.argv[1]
-repo_dir = sys.argv[2]
-
-# 보안 관련 키워드
-security_keywords = ['auth', 'login', 'password', 'token', 'session', 'permission',
-                     'middleware', 'csrf', 'xss', 'sql', 'inject', 'sanitize',
-                     'validate', 'serialize', 'deserialize', 'upload', 'exec',
-                     'eval', 'system', 'subprocess', 'crypto', 'secret', 'key']
-
-try:
-    with open(changed_file) as f:
-        files = [l.strip() for l in f.readlines()]
-except:
-    sys.exit(0)
-
-output = []
-for fname in files:
-    full_path = os.path.join(repo_dir, fname)
-    if not os.path.isfile(full_path):
-        continue
-    # 소스 코드 파일만
-    if not any(fname.endswith(ext) for ext in ['.py','.js','.ts','.rb','.php','.go','.java']):
-        continue
-
-    try:
-        with open(full_path) as f:
-            content = f.read()
-    except:
-        continue
-
-    # 보안 관련 파일인지 빠르게 체크
-    content_lower = content.lower()
-    is_security_relevant = any(kw in content_lower for kw in security_keywords)
-    is_route_file = any(kw in content_lower for kw in ['route', 'endpoint', '@app.', 'router', 'urlpatterns'])
-
-    if is_security_relevant or is_route_file:
-        # 파일이 너무 크면 앞부분만
-        truncated = content[:5000]
-        if len(content) > 5000:
-            truncated += f"\n... (truncated, total {len(content)} chars)"
-        output.append(f"### {fname}\n```\n{truncated}\n```\n")
-
-    if len(output) >= 10:  # 최대 10개 파일
-        break
-
-if output:
-    print("\n".join(output))
-else:
-    print("보안 관련 변경 파일 없음")
-PYEOF
-    )
+    # 변경된 파일 목록만 추출 (코드는 Claude가 직접 읽음)
+    CHANGED_LIST=$(cat "$CHANGED_FILES_PATH" | head -50)
 
     claude -p "
 당신은 시니어 보안 연구원입니다. $NAME ($LANG) 프로젝트에 새 코드가 커밋되었습니다.
 
-## 변경 diff:
-\`\`\`diff
-$DIFF_CONTENT
-\`\`\`
-$([ "$DIFF_SIZE" -gt 30000 ] && echo "(diff가 ${DIFF_SIZE}바이트로 잘렸습니다)")
+프로젝트 경로: $REPO_DIR
+변경 diff 파일: $DIFF_FILE
 
-## 변경된 보안 관련 파일 전문:
-$SECURITY_CONTEXT
+## 변경된 파일 목록:
+$CHANGED_LIST
 
-이 변경사항에서 새로 도입된 보안 취약점을 찾으세요.
-분석 포커스:
+**지시사항:**
+1. Read 도구로 diff 파일($DIFF_FILE)을 읽어서 변경 내용을 파악하세요
+2. 보안 관련 변경이 있는 파일은 Read로 전체 파일을 읽어 컨텍스트를 확인하세요
+3. Grep으로 인증/인가 미들웨어, 입력 검증 로직을 검색하세요
+   - 예: Grep으로 'auth', 'middleware', 'permission', 'sanitize' 등 검색
+4. 변경된 함수가 호출되는 다른 파일도 추적하세요
+
+**분석 포커스:**
 1. 새로 추가된 엔드포인트에 인증/인가 누락
 2. 새 입력 처리 코드에서 검증 누락 (SQLi, XSS, SSTI, 커맨드 인젝션)
 3. 기존 보안 로직이 변경되면서 우회 가능해진 경우
@@ -314,7 +287,7 @@ $SECURITY_CONTEXT
 
 중요: 변경 전에도 있던 기존 문제는 제외. 이번 변경으로 새로 도입된 것만.
 
-JSON으로만 출력:
+최종 결과를 반드시 아래 JSON 형식으로만 출력하세요:
 {
   \"project\": \"$NAME\",
   \"date\": \"$DATE\",
@@ -324,70 +297,36 @@ JSON으로만 출력:
       \"severity\": \"CRITICAL/HIGH/MEDIUM/LOW\",
       \"file\": \"파일:라인\",
       \"introduced_in\": \"어떤 변경에서 도입됐는지\",
-      \"description\": \"상세 설명\",
-      \"vulnerable_code\": \"취약한 코드 라인\",
+      \"description\": \"상세 설명 (어떤 파일의 어떤 코드를 확인했는지 포함)\",
+      \"vulnerable_code\": \"취약한 코드 라인 (실제 코드에서 인용)\",
       \"poc_scenario\": \"PoC 시나리오\",
       \"fix_suggestion\": \"수정 제안\"
     }
   ]
 }
-" 2>/dev/null | python3 "$EXTRACT_JSON" > "$DIFF_ANALYSIS_FILE"
+" --allowedTools "$ALLOWED_TOOLS" 2>/dev/null | python3 "$EXTRACT_JSON" > "$DIFF_ANALYSIS_FILE"
 
   elif [[ "$IS_NEW_CLONE" == "true" ]]; then
-    log "Phase 4: 신규 레포 — 전체 보안 관련 코드 분석"
-
-    # 신규 클론일 때는 보안 관련 파일 전체 분석
-    SECURITY_FILES_CONTENT=$(python3 - "$REPO_DIR" "$LANG" <<'PYEOF'
-import sys, os, glob
-
-repo_dir = sys.argv[1]
-lang = sys.argv[2]
-
-ext_map = {
-    'python': ['*.py'], 'javascript': ['*.js','*.ts'], 'ruby': ['*.rb'],
-    'php': ['*.php'], 'go': ['*.go'], 'java': ['*.java'],
-    'unknown': ['*.py','*.js','*.ts','*.rb','*.php','*.go','*.java']
-}
-exts = ext_map.get(lang, ext_map['unknown'])
-
-security_keywords = ['auth', 'login', 'password', 'token', 'session', 'permission',
-                     'middleware', 'csrf', 'sanitize', 'validate', 'upload',
-                     'exec', 'eval', 'system', 'subprocess', 'crypto', 'secret',
-                     'route', 'endpoint', '@app.', 'router', 'urlpatterns']
-
-output = []
-for ext in exts:
-    for fpath in glob.glob(os.path.join(repo_dir, '**', ext), recursive=True):
-        if '/node_modules/' in fpath or '/.git/' in fpath or '/vendor/' in fpath:
-            continue
-        try:
-            with open(fpath) as f:
-                content = f.read()
-        except:
-            continue
-        content_lower = content.lower()
-        if any(kw in content_lower for kw in security_keywords):
-            rel = os.path.relpath(fpath, repo_dir)
-            truncated = content[:4000]
-            if len(content) > 4000:
-                truncated += f"\n... (truncated, total {len(content)} chars)"
-            output.append(f"### {rel}\n```\n{truncated}\n```\n")
-        if len(output) >= 15:
-            break
-    if len(output) >= 15:
-        break
-
-print("\n".join(output) if output else "보안 관련 파일 없음")
-PYEOF
-    )
+    log "Phase 4: 신규 레포 — 전체 보안 관련 코드 분석 (LLM 직접 탐색)"
 
     claude -p "
 당신은 시니어 보안 연구원입니다. $NAME ($LANG) 프로젝트를 처음 감사합니다.
-아래는 보안 관련 주요 파일들의 실제 코드입니다.
 
-$SECURITY_FILES_CONTENT
+프로젝트 경로: $REPO_DIR
 
-다음을 분석하세요:
+**지시사항:**
+1. Glob으로 프로젝트 구조를 파악하세요 (소스 파일 목록)
+2. Grep으로 보안 민감 패턴을 검색하세요:
+   - 라우트/엔드포인트 정의: 'route', '@app.', 'router', 'urlpatterns'
+   - 인증: 'auth', 'login', 'session', 'token', 'jwt'
+   - 위험 함수: 'exec', 'eval', 'system', 'subprocess', 'raw(', 'serialize'
+   - DB: 'query', 'execute', 'cursor', 'raw_sql', 'format('
+   - 파일: 'upload', 'download', 'open(', 'write('
+3. 발견된 보안 민감 파일을 Read로 전체 읽어서 분석하세요
+4. 인증 미들웨어 설정 파일도 확인하세요
+5. 함수 호출 체인을 따라가며 외부 입력이 위험 함수에 도달하는지 추적하세요
+
+**분석 포커스:**
 1. 인증 미들웨어 없이 노출된 엔드포인트 (CRITICAL)
 2. 수평/수직 권한 상승 가능 지점 (HIGH)
 3. SQL 인젝션, 커맨드 인젝션, SSTI 경로 (HIGH)
@@ -396,7 +335,7 @@ $SECURITY_FILES_CONTENT
 
 중요: 실제 exploit 가능한 취약점만. 프레임워크 기본 보호로 막히는 건 제외.
 
-JSON으로만 출력:
+최종 결과를 반드시 아래 JSON 형식으로만 출력하세요:
 {
   \"project\": \"$NAME\",
   \"date\": \"$DATE\",
@@ -406,14 +345,14 @@ JSON으로만 출력:
       \"severity\": \"CRITICAL/HIGH/MEDIUM/LOW\",
       \"file\": \"파일:라인\",
       \"introduced_in\": \"initial audit\",
-      \"description\": \"상세 설명\",
-      \"vulnerable_code\": \"취약한 코드 라인\",
+      \"description\": \"상세 설명 (어떤 파일의 어떤 코드를 확인했는지 포함)\",
+      \"vulnerable_code\": \"취약한 코드 라인 (실제 코드에서 인용)\",
       \"poc_scenario\": \"PoC 시나리오\",
       \"fix_suggestion\": \"수정 제안\"
     }
   ]
 }
-" 2>/dev/null | python3 "$EXTRACT_JSON" > "$DIFF_ANALYSIS_FILE"
+" --allowedTools "$ALLOWED_TOOLS" 2>/dev/null | python3 "$EXTRACT_JSON" > "$DIFF_ANALYSIS_FILE"
   fi
 
   # ──────────────────────────────────────

@@ -145,23 +145,24 @@ for t in targets:
   # ──────────────────────────────────────
   log "Phase 3: Claude Code로 IDOR 후보 분석"
 
-  ENDPOINTS_CONTENT=$(head -200 "$DOMAIN_DIR/endpoints.txt" 2>/dev/null)
-
+  ALLOWED_TOOLS="Read,Grep,Glob,Bash(ls:*),Bash(head:*),Bash(wc:*)"
+  ENDPOINTS_FILE="$DOMAIN_DIR/endpoints.txt"
   ANALYSIS_FILE="$TRACK_DIR/analysis/${DOMAIN}_${DATE}.json"
 
   claude -p "
-당신은 버그 바운티 보안 연구원입니다. 아래는 $DOMAIN 에서 수집된 API 엔드포인트 목록입니다.
+당신은 버그 바운티 보안 연구원입니다. $DOMAIN 에서 수집된 API 엔드포인트를 분석합니다.
 
-$ENDPOINTS_CONTENT
+엔드포인트 파일: $ENDPOINTS_FILE
 
-다음 작업을 수행하세요:
-1. 사용자 ID, 리소스 ID, 또는 예측 가능한 식별자를 파라미터로 받는 엔드포인트를 찾으세요
-2. 각 엔드포인트에 대해 IDOR 가능성을 HIGH/MEDIUM/LOW로 평가하세요
-3. 구체적인 테스트 시나리오를 작성하세요 (어떤 ID를 바꿔서 어떤 데이터 접근을 시도할지)
-4. 보안 미들웨어가 정상 작동할 경우 막히는 케이스는 제외하세요 (false positive 줄이기)
-5. rate-limited 엔드포인트도 제외하세요
+**지시사항:**
+1. Read 도구로 엔드포인트 파일을 전체 읽으세요
+2. 사용자 ID, 리소스 ID, 또는 예측 가능한 식별자를 파라미터로 받는 엔드포인트를 찾으세요
+3. 각 엔드포인트에 대해 IDOR 가능성을 HIGH/MEDIUM/LOW로 평가하세요
+4. 구체적인 테스트 시나리오를 작성하세요 (어떤 ID를 바꿔서 어떤 데이터 접근을 시도할지)
+5. 보안 미들웨어가 정상 작동할 경우 막히는 케이스는 제외하세요 (false positive 줄이기)
+6. rate-limited 엔드포인트도 제외하세요
 
-결과를 반드시 아래 JSON 형식으로만 출력하세요. 다른 텍스트는 출력하지 마세요:
+최종 결과를 반드시 아래 JSON 형식으로만 출력하세요:
 {
   \"domain\": \"$DOMAIN\",
   \"date\": \"$DATE\",
@@ -178,7 +179,7 @@ $ENDPOINTS_CONTENT
     }
   ]
 }
-" 2>/dev/null | python3 "$EXTRACT_JSON" > "$ANALYSIS_FILE"
+" --allowedTools "$ALLOWED_TOOLS" 2>/dev/null | python3 "$EXTRACT_JSON" > "$ANALYSIS_FILE"
 
   # JSON 추출 실패 체크
   if python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); assert 'error' not in d" 2>/dev/null; then
