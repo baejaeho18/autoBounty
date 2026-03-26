@@ -27,28 +27,16 @@ case "${1:-}" in
     if [[ -f "$LOCKFILE" ]]; then
       PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
       if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null; then
-        echo "✅ 실행 중 (PID $PID, 시작: $(stat -c '%y' "$LOCKFILE" 2>/dev/null | cut -d. -f1 || echo '?'))"
+        echo "✅ 실행 중 (PID $PID)"
       else
-        echo "⚠️  PID $PID 이미 종료됨 (좀비 락 파일)"
+        echo "⚠️  PID $PID 이미 종료됨 (락 파일 정리)"
         rm -f "$LOCKFILE" "$STATUSFILE"
-        exit 0
       fi
     else
-      echo "⏹️  실행 중인 스캐너 없음"
-      exit 0
+      echo "⏹️  실행 중인 스캐너 없음 (마지막 실행 결과 표시)"
     fi
-    # 상태 파일 출력
-    if [[ -f "$STATUSFILE" ]]; then
-      echo "────────────────────────────────"
-      cat "$STATUSFILE"
-    fi
-    # 최근 로그 5줄
-    LOGFILE="$LOG_DIR/$DATE-redos.log"
-    if [[ -f "$LOGFILE" ]]; then
-      echo "────────────────────────────────"
-      echo "최근 로그:"
-      tail -5 "$LOGFILE"
-    fi
+    echo ""
+    python3 "$SCRIPT_DIR/show_status.py" "$BASE" "$DATE"
     exit 0
     ;;
   --stop)
@@ -75,8 +63,8 @@ case "${1:-}" in
       EXISTING_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
       if [[ -n "$EXISTING_PID" ]] && kill -0 "$EXISTING_PID" 2>/dev/null; then
         echo "ERROR: 이미 실행 중 (PID $EXISTING_PID)"
-        echo "  상태 확인: $0 --status"
-        echo "  중지:     $0 --stop"
+        echo "  상태: $0 --status"
+        echo "  중지: $0 --stop"
         exit 1
       fi
     fi
@@ -84,10 +72,10 @@ case "${1:-}" in
     nohup "$0" --run >> "$LOG_DIR/$DATE-orchestrator.log" 2>&1 &
     DAEMON_PID=$!
     echo "$DAEMON_PID" > "$LOCKFILE"
-    echo "🚀 백그라운드 데몬 시작 (PID $DAEMON_PID)"
-    echo "  로그:   tail -f $LOG_DIR/$DATE-redos.log"
-    echo "  상태:   $0 --status"
-    echo "  중지:   $0 --stop"
+    echo "🚀 백그라운드 시작 (PID $DAEMON_PID)"
+    echo "  로그: tail -f $LOG_DIR/$DATE-redos.log"
+    echo "  상태: $0 --status"
+    echo "  중지: $0 --stop"
     exit 0
     ;;
   --run)
@@ -121,17 +109,6 @@ if [[ "${1:-}" != "--run" ]]; then
 fi
 trap "rm -f '$LOCKFILE' '$STATUSFILE'" EXIT
 
-# 상태 파일 업데이트 헬퍼
-update_status() {
-  cat > "$STATUSFILE" << EOF
-상태: $1
-레포: $2
-시작: $(date '+%Y-%m-%d %H:%M:%S')
-EOF
-}
-
-update_status "파이프라인 시작" "65개 대상"
-
 log "========== ReDoS Scanner 시작 (65개 레포 1회 순회) =========="
 
 # ─── config.json에서 활성화 여부 읽기 ───
@@ -147,7 +124,6 @@ print(cfg.get('$1', {}).get('enabled', True))
 # ─── ReDoS 스캔 실행 ───
 if [[ "$(track_enabled track_redos)" == "True" ]]; then
   log "ReDoS 스캐너 파이프라인 시작"
-  update_status "스캔 진행 중" "65개 대상"
   bash "$BASE/scripts/track4_redos.sh" 2>&1 | tee -a "$LOG_DIR/$DATE-redos.log"
   RESULT=${PIPESTATUS[0]}
   if [[ "$RESULT" -ne 0 ]]; then
@@ -157,5 +133,4 @@ else
   log "ReDoS: config에서 비활성화됨"
 fi
 
-update_status "완료" "65개 대상"
 log "========== ReDoS Scanner 종료 =========="
