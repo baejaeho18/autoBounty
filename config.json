@@ -3,7 +3,7 @@
     "findings_db": "data/findings.json",
     "log_dir": "logs",
     "notification": {
-      "discord_webhook": "https://discord.com/api/webhooks/1486252772201594890/-QDDvrJLQu7EcxbSBev06yBsjgwnD1a5EW3WYKLROJCA0N2UjUnkz5SkavIQOFy0XVrh",
+      "discord_webhook": "https://discord.com/api/webhooks/1486576612609888256/3s2b2VbBOHhmPBRLo55j_6B9MRPn4U_WVNPwphAqUj6_K1ogH50GrxOq-LAlDRSibZf1",
       "notify_on": [
         "high",
         "critical"

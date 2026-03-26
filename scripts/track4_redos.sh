@@ -18,88 +18,82 @@ CONFIG="$BASE/config.json"
 EXTRACT_JSON="$BASE/scripts/extract_json.py"
 REDOS_SCANNER="$BASE/scripts/redos_scanner.py"
 FETCH_REPOS="$BASE/scripts/fetch_oss_repos.py"
-NOTIFY_DISCORD="$BASE/scripts/notify_discord.py"
+DISCORD="$BASE/scripts/discord_helper.py"
 DATE=$(date +%Y-%m-%d)
 BRANCH=$(git -C "$BASE" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
 
 # LLM 질의 대기열
 LLM_QUEUE_FILE="$TRACK_DIR/.llm_queue_${DATE}.txt"
 LLM_DONE_FILE="$TRACK_DIR/.llm_done_${DATE}.txt"
+DISCORD_MSG_FILE="$TRACK_DIR/.discord_msg_ids_${DATE}.txt"
 
 # 토큰 리셋 대기 설정 (분)
 TOKEN_RESET_WAIT_MIN=${TOKEN_RESET_WAIT_MIN:-60}
 MAX_LLM_RETRIES=${MAX_LLM_RETRIES:-5}
 
 mkdir -p "$TRACK_DIR"/{repos,scans,analysis,reports}
-touch "$LLM_QUEUE_FILE" "$LLM_DONE_FILE"
+touch "$LLM_QUEUE_FILE" "$LLM_DONE_FILE" "$DISCORD_MSG_FILE"
 PIPELINE_START_TS=$(date +%s)
 
 log() { echo "[T4 $(date '+%H:%M:%S')] $1"; }
+
+# Discord 헬퍼 (실패해도 파이프라인 중단 안 함)
+discord() { python3 "$DISCORD" "$@" 2>/dev/null || true; }
+
+# Discord 메시지 ID 저장/조회
+save_msg_id() { echo "$1|$2" >> "$DISCORD_MSG_FILE"; }
+get_msg_id() { grep "^$1|" "$DISCORD_MSG_FILE" 2>/dev/null | tail -1 | cut -d'|' -f2; }
 
 # ──────────────────────────────────────
 # 헬퍼: LLM 호출 + 토큰 소진 감지
 # ──────────────────────────────────────
 call_claude() {
-  # $1: prompt, $2: allowed_tools, $3: output_file
-  local prompt="$1"
-  local allowed_tools="$2"
-  local output_file="$3"
+  local prompt="$1" allowed_tools="$2" output_file="$3"
   local tmp_out tmp_err exit_code
+  tmp_out=$(mktemp); tmp_err=$(mktemp)
 
-  tmp_out=$(mktemp)
-  tmp_err=$(mktemp)
-
+  exit_code=0
   claude -p "$prompt" --allowedTools "$allowed_tools" \
-    >"$tmp_out" 2>"$tmp_err"
-  exit_code=$?
+    >"$tmp_out" 2>"$tmp_err" \
+    || exit_code=$?
 
   local err_content
   err_content=$(cat "$tmp_err" 2>/dev/null || true)
 
-  # 토큰/Rate limit 감지
   if [[ $exit_code -ne 0 ]] || \
      echo "$err_content" | grep -qiE "rate.?limit|token.?limit|quota|exceeded|capacity|overloaded|529|429|too many"; then
     rm -f "$tmp_out" "$tmp_err"
-    return 2  # 토큰 소진 코드
+    return 2
   fi
 
-  # 빈 출력 체크
   if [[ ! -s "$tmp_out" ]]; then
     rm -f "$tmp_out" "$tmp_err"
-    return 1  # 일반 실패
+    return 1
   fi
 
-  # JSON 추출
   cat "$tmp_out" | python3 "$EXTRACT_JSON" > "$output_file" 2>/dev/null
   local json_exit=$?
   rm -f "$tmp_out" "$tmp_err"
 
-  # extract_json이 실패하거나 error 포함 시
   if [[ $json_exit -ne 0 ]] || grep -q '"error"' "$output_file" 2>/dev/null; then
     return 1
   fi
-
   return 0
 }
 
 # ──────────────────────────────────────
-# 헬퍼: 리포트 git commit + push (재시도 포함)
+# 헬퍼: 리포트 git commit + push
 # ──────────────────────────────────────
 commit_and_push_report() {
-  local report_file="$1"
-  local project_name="$2"
-
+  local report_file="$1" project_name="$2"
   local rel_path
   rel_path=$(python3 -c "import os; print(os.path.relpath('$report_file', '$BASE'))")
-
   git -C "$BASE" add "$rel_path"
   git -C "$BASE" commit -m "Add ReDoS report: ${project_name} (${DATE})" 2>/dev/null || {
     log "WARN: git commit 실패 (변경 없음?)"
     return 1
   }
-
-  local attempt=0
-  local wait_sec=2
+  local attempt=0 wait_sec=2
   while [[ $attempt -lt 4 ]]; do
     if git -C "$BASE" push -u origin "$BRANCH" 2>/dev/null; then
       log "git push 완료: $rel_path"
@@ -124,13 +118,11 @@ run_llm_analysis() {
   local ANALYSIS_FILE="$TRACK_DIR/analysis/${NAME}_redos_${DATE}.json"
   local ALLOWED_TOOLS="Read,Grep,Glob,Bash(ls:*),Bash(head:*),Bash(wc:*),Bash(find:*),Bash(python3:*)"
 
-  # 이미 분석 완료된 건 스킵
   if grep -qF "$NAME" "$LLM_DONE_FILE" 2>/dev/null; then
     log "[$NAME] 이미 LLM 분석 완료 — 스킵"
     return 0
   fi
 
-  # 스캔 결과 확인
   if [[ ! -f "$SCAN_FILE" ]]; then
     log "[$NAME] 스캔 결과 없음 — 스킵"
     return 0
@@ -155,7 +147,6 @@ except: print(0)
 
   log "[$NAME] LLM 정밀 분석 시작 (${CRIT_HIGH}건 TP/FP 판별)"
 
-  # 스캔 결과 요약
   local SCAN_SUMMARY
   SCAN_SUMMARY=$(python3 - "$SCAN_FILE" <<'PYEOF'
 import json, sys
@@ -176,7 +167,6 @@ for f in findings[:30]:
 PYEOF
   )
 
-  # ── Phase 3: LLM 정밀 분석 ──
   local LLM_PROMPT="
 당신은 시니어 보안 연구원입니다. $NAME ($LANG) 프로젝트의 ReDoS 취약점을 정밀 분석합니다.
 
@@ -231,7 +221,7 @@ $SCAN_SUMMARY
 
   if [[ $llm_exit -eq 2 ]]; then
     log "[$NAME] 토큰/Rate limit 도달 — 대기열에 추가"
-    return 2  # 토큰 소진
+    return 2
   fi
 
   if [[ $llm_exit -ne 0 ]]; then
@@ -240,36 +230,52 @@ $SCAN_SUMMARY
     return 1
   fi
 
-  # TP 건수 확인
-  local TP_COUNT
-  TP_COUNT=$(python3 -c "
-import json
+  # LLM 결과 파싱
+  local LLM_STATS
+  LLM_STATS=$(python3 - "$ANALYSIS_FILE" <<'PYEOF'
+import json, sys
 try:
-    with open('$ANALYSIS_FILE') as f:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
-    tp = [t for t in data.get('redos_triage', []) if t.get('verdict') == 'TP']
-    print(len(tp))
-except: print(0)
-" 2>/dev/null || echo "0")
+    triage = data.get("redos_triage", [])
+    tp = [t for t in triage if t.get("verdict") == "TP"]
+    fp = [t for t in triage if t.get("verdict") == "FP"]
+    tp_crit = len([t for t in tp if t.get("severity") == "CRITICAL"])
+    tp_high = len([t for t in tp if t.get("severity") == "HIGH"])
+    tp_med  = len([t for t in tp if t.get("severity") == "MEDIUM"])
+    tp_low  = len([t for t in tp if t.get("severity") == "LOW"])
+    # TP details JSON
+    tp_details = json.dumps([{
+        "severity": t.get("severity","?"),
+        "vuln_type": t.get("vuln_type","?"),
+        "file": t.get("file","?"),
+        "pattern": t.get("pattern","?"),
+        "reasoning": t.get("reasoning","")
+    } for t in tp], ensure_ascii=False)
+    print(f"{len(tp)}|{len(fp)}|{tp_crit}|{tp_high}|{tp_med}|{tp_low}|{tp_details}")
+except:
+    print("0|0|0|0|0|0|[]")
+PYEOF
+  )
 
-  log "[$NAME] LLM 분석 완료: TP ${TP_COUNT}건"
+  IFS='|' read -r TP_COUNT FP_COUNT TP_CRIT TP_HIGH TP_MED TP_LOW TP_DETAILS <<< "$LLM_STATS"
+  log "[$NAME] LLM 분석 완료: TP ${TP_COUNT}건 / FP ${FP_COUNT}건"
 
-  # ── Phase 4: 리포트 생성 → commit & push → Discord ──
-  local TP_HIGH_COUNT
-  TP_HIGH_COUNT=$(python3 -c "
-import json
-try:
-    with open('$ANALYSIS_FILE') as f:
-        data = json.load(f)
-    tp = [t for t in data.get('redos_triage', [])
-          if t.get('verdict') == 'TP' and t.get('severity') in ('CRITICAL', 'HIGH')
-          and t.get('confidence') in ('HIGH', 'MEDIUM')]
-    print(len(tp))
-except: print(0)
-" 2>/dev/null || echo "0")
+  # Discord: LLM 결과 → 정적 분석 메시지 편집
+  local STATIC_MSG_ID
+  STATIC_MSG_ID=$(get_msg_id "$NAME")
+  if [[ -n "$STATIC_MSG_ID" ]]; then
+    discord llm-result \
+      --name "$NAME" \
+      --edit-msg-id "$STATIC_MSG_ID" \
+      --tp "$TP_COUNT" --fp "$FP_COUNT" \
+      --critical "$TP_CRIT" --high "$TP_HIGH" --medium "$TP_MED" --low "$TP_LOW" \
+      --tp-details "$TP_DETAILS"
+  fi
 
-  if [[ "$TP_HIGH_COUNT" -gt 0 ]]; then
-    log "[$NAME] 리포트 생성 (TP CRITICAL/HIGH: ${TP_HIGH_COUNT}건)"
+  # ── 리포트 생성: 모든 TP에 대해 (severity 무관) ──
+  if [[ "$TP_COUNT" -gt 0 ]]; then
+    log "[$NAME] 리포트 생성 (TP: ${TP_COUNT}건)"
 
     local ANALYSIS_CONTENT REPORT_FILE
     ANALYSIS_CONTENT=$(cat "$ANALYSIS_FILE")
@@ -277,7 +283,7 @@ except: print(0)
 
     local REPORT_PROMPT="
 아래 ReDoS 취약점 분석 결과를 바탕으로 Responsible Disclosure 리포트를 작성하세요.
-TP(True Positive)로 판별된 HIGH/CRITICAL 건만 포함합니다.
+TP(True Positive)로 판별된 모든 건을 포함합니다.
 
 $ANALYSIS_CONTENT
 
@@ -289,7 +295,7 @@ $ANALYSIS_CONTENT
 - Static regex pattern analysis (nested quantifiers, overlapping alternations)
 - LLM-assisted triage (TP/FP classification with code context analysis)
 - Empirical backtracking verification
-## Vulnerability Details (각 TP CRITICAL/HIGH 건에 대해)
+## Vulnerability Details (각 TP 건에 대해)
 ### [CWE-1333] ReDoS in [파일명]
 - **Severity**: [CVSS 3.1 점수] — CWE-1333: Inefficient Regular Expression Complexity
 - **File**: [파일:라인]
@@ -305,11 +311,10 @@ $ANALYSIS_CONTENT
 - Vendor notification: [TBD]
 "
 
-    # 리포트 생성도 LLM 호출
-    claude -p "$REPORT_PROMPT" > "$REPORT_FILE" 2>/dev/null
-    if [[ $? -ne 0 ]] || [[ ! -s "$REPORT_FILE" ]]; then
+    exit_code=0
+    claude -p "$REPORT_PROMPT" > "$REPORT_FILE" 2>/dev/null || exit_code=$?
+    if [[ $exit_code -ne 0 ]] || [[ ! -s "$REPORT_FILE" ]]; then
       log "[$NAME] WARN: 리포트 생성 실패 (토큰 소진 가능)"
-      # 분석은 완료됐으니 done에 넣지 않고 리포트만 재시도하게 둠
       return 2
     fi
 
@@ -324,7 +329,7 @@ except:
     sys.exit(0)
 tp_findings = [
     t for t in data.get("redos_triage", [])
-    if t.get("verdict") == "TP" and t.get("severity") in ("CRITICAL", "HIGH")
+    if t.get("verdict") == "TP"
 ]
 if not tp_findings:
     sys.exit(0)
@@ -356,18 +361,11 @@ PYEOF
     # git commit & push
     commit_and_push_report "$REPORT_FILE" "$NAME"
 
-    # Discord 알림
-    log "[$NAME] Discord 알림 전송"
-    python3 "$NOTIFY_DISCORD" \
-      --report "$REPORT_FILE" \
-      --project "$NAME" \
-      --repo-url "$REPO_URL" \
-      --analysis "$ANALYSIS_FILE" \
-      --branch "$BRANCH" \
-      2>/dev/null || log "[$NAME] WARN: Discord 알림 실패"
+    # Discord: 리포트 내용 알림
+    discord report --name "$NAME" --report-file "$REPORT_FILE" --branch "$BRANCH"
 
   else
-    log "[$NAME] TP HIGH/CRITICAL 없음 — 리포트 스킵"
+    log "[$NAME] TP 없음 — 리포트 스킵"
   fi
 
   echo "$NAME" >> "$LLM_DONE_FILE"
@@ -375,7 +373,7 @@ PYEOF
 }
 
 # ══════════════════════════════════════
-# PASS 1: 전체 레포 Clone + 정적 분석 (LLM 불필요)
+# PASS 1: 전체 레포 Clone + 정적 분석
 # ══════════════════════════════════════
 log "Phase 0: Google Bug Hunters OSS VRP 레포 목록 가져오기"
 python3 "$FETCH_REPOS" || {
@@ -410,9 +408,10 @@ for t in targets:
     print(f\"{t['repo_url']}|{t['name']}|{t.get('language','unknown')}|{t.get('tier','UNKNOWN')}\")
 " | while IFS='|' read -r REPO_URL NAME LANG TIER; do
 
-  log "--- [$TIER] $NAME ($LANG) ---"
   REPO_INDEX=$((REPO_INDEX + 1))
-  # 상태 파일 업데이트 (--status에서 읽음)
+  log "--- [$TIER] $NAME ($LANG) [$REPO_INDEX/$TARGET_COUNT] ---"
+
+  # 상태 파일 업데이트
   cat > "$BASE/.orchestrator.status" << STEOF
 상태: Pass 1 정적 분석
 진행: ${REPO_INDEX}/${TARGET_COUNT}
@@ -420,6 +419,11 @@ for t in targets:
 티어: $TIER
 시작: $(date '+%Y-%m-%d %H:%M:%S')
 STEOF
+
+  # Discord: 레포 스캐닝 시작 알림
+  discord repo-start --name "$NAME" --tier "$TIER" --lang "$LANG" \
+    --index "$REPO_INDEX" --total "$TARGET_COUNT"
+
   REPO_DIR="$TRACK_DIR/repos/$NAME"
 
   # Clone 또는 Pull
@@ -441,31 +445,52 @@ STEOF
       --output "$SCAN_FILE" \
       --min-severity LOW 2>/dev/null; then
 
-    CRIT_HIGH=$(python3 -c "
-import json
+    # 스캔 결과 파싱
+    SCAN_STATS=$(python3 - "$SCAN_FILE" <<'PYEOF'
+import json, sys
 try:
-    with open('$SCAN_FILE') as f:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
-    s = data.get('stats', {})
-    print(s.get('critical', 0) + s.get('high', 0))
-except: print(0)
-" 2>/dev/null || echo "0")
+    s = data.get("stats", {})
+    total = s.get("total_findings", 0)
+    crit = s.get("critical", 0)
+    high = s.get("high", 0)
+    med = s.get("medium", 0)
+    low = s.get("low", 0)
+    # findings details JSON for discord
+    findings = data.get("findings", [])
+    details = json.dumps([{
+        "severity": f.get("severity","?"),
+        "vuln_type": f.get("vuln_type","?"),
+        "file": f.get("file","?"),
+        "line": f.get("line","?")
+    } for f in findings[:10]], ensure_ascii=False)
+    print(f"{total}|{crit}|{high}|{med}|{low}|{details}")
+except:
+    print("0|0|0|0|0|[]")
+PYEOF
+    )
 
-    FINDING_COUNT=$(python3 -c "
-import json
-try:
-    with open('$SCAN_FILE') as f:
-        data = json.load(f)
-    print(data.get('stats', {}).get('total_findings', 0))
-except: print(0)
-" 2>/dev/null || echo "0")
+    IFS='|' read -r FINDING_COUNT CRIT HIGH MED LOW DETAILS <<< "$SCAN_STATS"
+    CRIT_HIGH=$((CRIT + HIGH))
+    log "정적 스캔: ${FINDING_COUNT}건 (C: ${CRIT} H: ${HIGH} M: ${MED} L: ${LOW})"
 
-    log "정적 스캔: ${FINDING_COUNT}건 (C+H: ${CRIT_HIGH}건)"
+    # Discord: 정적 분석 검출 알림 (검출된 경우만)
+    if [[ "$FINDING_COUNT" -gt 0 ]]; then
+      STATIC_MSG_ID=$(discord static-found \
+        --name "$NAME" \
+        --findings "$FINDING_COUNT" \
+        --critical "$CRIT" --high "$HIGH" --medium "$MED" --low "$LOW" \
+        --details "$DETAILS")
+      # 메시지 ID 저장 (나중에 LLM 결과로 편집)
+      if [[ -n "$STATIC_MSG_ID" ]]; then
+        save_msg_id "$NAME" "$STATIC_MSG_ID"
+      fi
+    fi
 
     # LLM 분석이 필요한 프로젝트를 큐에 추가
     if [[ "$CRIT_HIGH" -gt 0 ]]; then
       if ! grep -qF "$NAME" "$LLM_DONE_FILE" 2>/dev/null; then
-        # 중복 방지하여 큐에 추가
         if ! grep -qF "$NAME" "$LLM_QUEUE_FILE" 2>/dev/null; then
           echo "${REPO_URL}|${NAME}|${LANG}|${TIER}" >> "$LLM_QUEUE_FILE"
         fi
@@ -473,7 +498,14 @@ except: print(0)
     fi
   else
     log "WARN: ReDoS 스캐너 실패 ($NAME)"
+    FINDING_COUNT=0
+    CRIT_HIGH=0
   fi
+
+  # Discord: 레포 완료 알림 (진행률)
+  discord repo-done --name "$NAME" \
+    --index "$REPO_INDEX" --total "$TARGET_COUNT" \
+    --static "${FINDING_COUNT:-0}" --tp 0
 done
 
 # 큐 카운트
@@ -488,8 +520,7 @@ log "═════════════════════════
 # ══════════════════════════════════════
 if [[ "$LLM_QUEUE_COUNT" -eq 0 ]]; then
   log "LLM 분석 대상 없음 — 파이프라인 완료"
-  exit 0
-fi
+else
 
 log "══════════════════════════════════════"
 log "PASS 2: LLM 정밀 분석 시작 (${LLM_QUEUE_COUNT}개)"
@@ -502,14 +533,11 @@ while [[ $RETRY_ROUND -lt $MAX_LLM_RETRIES ]]; do
   REMAINING=0
 
   while IFS='|' read -r REPO_URL NAME LANG TIER; do
-    # 이미 완료된 건 스킵
     if grep -qF "$NAME" "$LLM_DONE_FILE" 2>/dev/null; then
       continue
     fi
-
     REMAINING=$((REMAINING + 1))
 
-    # 상태 업데이트
     cat > "$BASE/.orchestrator.status" << STEOF
 상태: Pass 2 LLM 분석
 현재: $NAME ($LANG)
@@ -527,7 +555,6 @@ STEOF
     fi
   done < "$LLM_QUEUE_FILE"
 
-  # 미완료 건수 재계산
   DONE_COUNT=$(wc -l < "$LLM_DONE_FILE" 2>/dev/null | tr -d ' ')
   PENDING=$(python3 -c "
 done_set = set()
@@ -556,12 +583,10 @@ print(count)
     log "══════════════════════════════════════"
     log "토큰 리셋 대기 (${TOKEN_RESET_WAIT_MIN}분)..."
     log "남은 프로젝트: ${PENDING}개 | 재시도: ${RETRY_ROUND}/${MAX_LLM_RETRIES}"
-    log "예상 재개 시각: $(date -d "+${TOKEN_RESET_WAIT_MIN} minutes" '+%H:%M:%S' 2>/dev/null || date -v+${TOKEN_RESET_WAIT_MIN}M '+%H:%M:%S' 2>/dev/null || echo '?')"
     log "══════════════════════════════════════"
     sleep $((TOKEN_RESET_WAIT_MIN * 60))
     log "토큰 리셋 대기 완료 — 재시도 시작"
   else
-    # 토큰 문제가 아닌데 남은 건이 있으면 (일반 에러) 한 번 더 시도
     RETRY_ROUND=$((RETRY_ROUND + 1))
     if [[ $RETRY_ROUND -lt $MAX_LLM_RETRIES ]]; then
       log "일반 에러로 실패한 건 재시도 (${RETRY_ROUND}/${MAX_LLM_RETRIES})"
@@ -569,7 +594,11 @@ print(count)
   fi
 done
 
-# 최종 상태
+fi  # LLM_QUEUE_COUNT > 0
+
+# ══════════════════════════════════════
+# 완료 집계 + Discord 파이프라인 완료 알림
+# ══════════════════════════════════════
 FINAL_DONE=$(wc -l < "$LLM_DONE_FILE" 2>/dev/null | tr -d ' ')
 FINAL_PENDING=$(python3 -c "
 done_set = set()
@@ -592,13 +621,6 @@ if [[ "$FINAL_PENDING" -gt 0 ]]; then
   log "WARN: LLM 분석 미완료 ${FINAL_PENDING}건 (다음 실행에서 재시도)"
 fi
 
-
-# ══════════════════════════════════════
-# 완료 Discord 알림
-# ══════════════════════════════════════
-PIPELINE_END=$(date +%s)
-PIPELINE_START_TS=${PIPELINE_START_TS:-$PIPELINE_END}
-
 # 스캔 결과 집계
 TOTAL_FINDINGS=$(python3 -c "
 import json, os, glob
@@ -618,7 +640,6 @@ print(f'{total}|{crit}|{high}|{med}|{low}')
 
 IFS='|' read -r STAT_TOTAL STAT_CRIT STAT_HIGH STAT_MED STAT_LOW <<< "$TOTAL_FINDINGS"
 
-# LLM TP 건수
 TP_TOTAL=$(python3 -c "
 import json, os, glob
 tp = 0
@@ -631,88 +652,22 @@ for f in glob.glob('$TRACK_DIR/analysis/*_redos_${DATE}.json'):
 print(tp)
 " 2>/dev/null || echo "0")
 
-# 리포트 수
 REPORT_COUNT=$(ls -1 "$TRACK_DIR/reports/"*_redos_${DATE}_report.md 2>/dev/null | wc -l | tr -d ' ')
 
-# Discord 완료 메시지 전송
-python3 - "$CONFIG" "$TARGET_COUNT" "$STAT_TOTAL" "$STAT_CRIT" "$STAT_HIGH" "$STAT_MED" "$STAT_LOW" \
-         "$FINAL_DONE" "$FINAL_PENDING" "$TP_TOTAL" "$REPORT_COUNT" "$DATE" <<'PYEOF'
-import json, sys, urllib.request, os
-
-config_path, target_count, stat_total, stat_crit, stat_high, stat_med, stat_low, \
-    llm_done, llm_pending, tp_total, report_count, date = sys.argv[1:13]
-
-try:
-    with open(config_path) as f:
-        config = json.load(f)
-except:
-    config = {}
-
-webhook = config.get("general", {}).get("notification", {}).get("discord_webhook", "")
-if not webhook or webhook == "YOUR_DISCORD_WEBHOOK_URL":
-    print("[discord] 웹훅 미설정 — 스킵")
-    sys.exit(0)
-
-github_repo = config.get("general", {}).get("github_repo", "baejaeho18/autoBounty")
-
-# 상태 이모지
-if int(tp_total) > 0:
-    status_emoji = ":rotating_light:"
-    status_text = f"**{tp_total}건의 실제 ReDoS 취약점 확인!**"
-    color = 0xFF0000
-elif int(stat_crit) + int(stat_high) > 0:
-    status_emoji = ":warning:"
-    status_text = "정적 분석에서 후보 발견 (LLM 검증 필요)"
-    color = 0xFF8C00
-else:
-    status_emoji = ":white_check_mark:"
-    status_text = "특이사항 없음"
-    color = 0x00CC00
-
-embed = {
-    "title": f"{status_emoji} ReDoS Scanner 완료 ({date})",
-    "description": status_text,
-    "color": color,
-    "fields": [
-        {
-            "name": ":mag: 정적 분석",
-            "value": (
-                f"스캔 레포: **{target_count}개**\n"
-                f"총 탐지: **{stat_total}건**\n"
-                f"CRITICAL: {stat_crit} / HIGH: {stat_high} / MEDIUM: {stat_med} / LOW: {stat_low}"
-            ),
-            "inline": False,
-        },
-        {
-            "name": ":robot: LLM 정밀 분석",
-            "value": (
-                f"완료: **{llm_done}개** 프로젝트\n"
-                f"미완료: {llm_pending}개\n"
-                f"TP (진양성): **{tp_total}건**"
-            ),
-            "inline": False,
-        },
-        {
-            "name": ":page_facing_up: 리포트",
-            "value": f"생성: **{report_count}건**" + (
-                f"\n[리포트 보기](https://github.com/{github_repo}/tree/redos-scanner/data/track4/reports)"
-                if int(report_count) > 0 else ""
-            ),
-            "inline": False,
-        },
-    ],
-    "footer": {"text": "autoBounty ReDoS Scanner"},
-}
-
-payload = json.dumps({"embeds": [embed]}).encode("utf-8")
-req = urllib.request.Request(webhook, data=payload, headers={"Content-Type": "application/json"})
-try:
-    urllib.request.urlopen(req, timeout=10)
-    print("[discord] 파이프라인 완료 알림 전송 완료")
-except Exception as e:
-    print(f"[discord] 완료 알림 전송 실패: {e}", file=sys.stderr)
-PYEOF
+# Discord: 파이프라인 전체 완료 알림
+discord pipeline-done \
+  --date "$DATE" \
+  --total-repos "$TARGET_COUNT" \
+  --static-total "$STAT_TOTAL" \
+  --static-crit "$STAT_CRIT" \
+  --static-high "$STAT_HIGH" \
+  --static-med "$STAT_MED" \
+  --static-low "$STAT_LOW" \
+  --llm-done "$FINAL_DONE" \
+  --llm-pending "$FINAL_PENDING" \
+  --tp-total "$TP_TOTAL" \
+  --report-count "$REPORT_COUNT"
 
 log "═══════════════════════════════════════════"
-log "Track 4 ReDoS 파이프라인 전체 완료 + Discord 알림"
+log "Track 4 ReDoS 파이프라인 전체 완료"
 log "═══════════════════════════════════════════"

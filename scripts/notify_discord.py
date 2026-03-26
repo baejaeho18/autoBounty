@@ -13,7 +13,7 @@ ReDoS 발견 시 Discord 웹훅으로 리포트 요약 + GitHub 링크 전송.
 import json
 import os
 import sys
-import urllib.request
+import requests as _requests
 import argparse
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -99,14 +99,13 @@ def build_report_github_url(report_path, branch):
 
 def send_discord(webhook_url, embeds):
     """Discord 웹훅으로 embed 메시지 전송"""
-    payload = json.dumps({"embeds": embeds}).encode("utf-8")
-    req = urllib.request.Request(
-        webhook_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+    }
     try:
-        urllib.request.urlopen(req, timeout=10)
+        resp = _requests.post(webhook_url, json={"embeds": embeds}, headers=headers, timeout=10)
+        resp.raise_for_status()
         print("[discord] 알림 전송 완료")
     except Exception as e:
         print(f"[discord] 전송 실패: {e}", file=sys.stderr)
