@@ -29,6 +29,13 @@
     "scan_options": {
       "min_severity": "LOW",
       "empirical_test": true
+    },
+    "cycle_interval_min": 360,
+    "daemon": {
+      "description": "한 번 실행하면 중지 전까지 반복 스캔",
+      "start": "./scripts/orchestrator.sh --daemon",
+      "stop": "./scripts/orchestrator.sh --stop",
+      "status": "./scripts/orchestrator.sh --status"
     }
   }
 }
