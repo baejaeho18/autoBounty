@@ -25,7 +25,7 @@ def fetch_txtpb(url: str) -> str:
         return resp.read().decode("utf-8")
 
 
-def parse_txtpb(content: str) -> list[dict]:
+def parse_txtpb(content):
     """
     text protobuf 형식에서 repository 항목 파싱.
     
