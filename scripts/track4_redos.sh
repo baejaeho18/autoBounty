@@ -398,6 +398,7 @@ log "PASS 1: 전체 ${TARGET_COUNT}개 레포 Clone + 정적 ReDoS 분석"
 log "══════════════════════════════════════"
 
 SCANNED_REPOS=0
+REPO_INDEX=0
 FAILED_REPOS=0
 NEED_LLM=0
 
@@ -410,6 +411,15 @@ for t in targets:
 " | while IFS='|' read -r REPO_URL NAME LANG TIER; do
 
   log "--- [$TIER] $NAME ($LANG) ---"
+  REPO_INDEX=$((REPO_INDEX + 1))
+  # 상태 파일 업데이트 (--status에서 읽음)
+  cat > "$BASE/.orchestrator.status" << STEOF
+상태: Pass 1 정적 분석
+진행: ${REPO_INDEX}/${TARGET_COUNT}
+현재: $NAME ($LANG)
+티어: $TIER
+시작: $(date '+%Y-%m-%d %H:%M:%S')
+STEOF
   REPO_DIR="$TRACK_DIR/repos/$NAME"
 
   # Clone 또는 Pull
@@ -499,6 +509,14 @@ while [[ $RETRY_ROUND -lt $MAX_LLM_RETRIES ]]; do
 
     REMAINING=$((REMAINING + 1))
 
+    # 상태 업데이트
+    cat > "$BASE/.orchestrator.status" << STEOF
+상태: Pass 2 LLM 분석
+현재: $NAME ($LANG)
+대기열: ${LLM_QUEUE_COUNT}개 중 진행
+라운드: $((RETRY_ROUND + 1))/${MAX_LLM_RETRIES}
+시간: $(date '+%Y-%m-%d %H:%M:%S')
+STEOF
     run_llm_analysis "$REPO_URL" "$NAME" "$LANG" "$TIER"
     local_exit=$?
 
