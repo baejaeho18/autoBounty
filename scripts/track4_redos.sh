@@ -32,6 +32,7 @@ MAX_LLM_RETRIES=${MAX_LLM_RETRIES:-5}
 
 mkdir -p "$TRACK_DIR"/{repos,scans,analysis,reports}
 touch "$LLM_QUEUE_FILE" "$LLM_DONE_FILE"
+PIPELINE_START_TS=$(date +%s)
 
 log() { echo "[T4 $(date '+%H:%M:%S')] $1"; }
 
@@ -573,8 +574,127 @@ if [[ "$FINAL_PENDING" -gt 0 ]]; then
   log "WARN: LLM 분석 미완료 ${FINAL_PENDING}건 (다음 실행에서 재시도)"
 fi
 
-log "══════════════════════════════════════"
-log "Track 4 ReDoS 파이프라인 완료"
-log "  정적 분석: ${TARGET_COUNT}개 레포"
-log "  LLM 분석: ${FINAL_DONE}개 완료, ${FINAL_PENDING}개 미완료"
-log "══════════════════════════════════════"
+
+# ══════════════════════════════════════
+# 완료 Discord 알림
+# ══════════════════════════════════════
+PIPELINE_END=$(date +%s)
+PIPELINE_START_TS=${PIPELINE_START_TS:-$PIPELINE_END}
+
+# 스캔 결과 집계
+TOTAL_FINDINGS=$(python3 -c "
+import json, os, glob
+total = crit = high = med = low = 0
+for f in glob.glob('$TRACK_DIR/scans/*_redos_${DATE}.json'):
+    try:
+        with open(f) as fh:
+            s = json.load(fh).get('stats', {})
+        total += s.get('total_findings', 0)
+        crit += s.get('critical', 0)
+        high += s.get('high', 0)
+        med += s.get('medium', 0)
+        low += s.get('low', 0)
+    except: pass
+print(f'{total}|{crit}|{high}|{med}|{low}')
+" 2>/dev/null || echo "0|0|0|0|0")
+
+IFS='|' read -r STAT_TOTAL STAT_CRIT STAT_HIGH STAT_MED STAT_LOW <<< "$TOTAL_FINDINGS"
+
+# LLM TP 건수
+TP_TOTAL=$(python3 -c "
+import json, os, glob
+tp = 0
+for f in glob.glob('$TRACK_DIR/analysis/*_redos_${DATE}.json'):
+    try:
+        with open(f) as fh:
+            data = json.load(fh)
+        tp += len([t for t in data.get('redos_triage', []) if t.get('verdict') == 'TP'])
+    except: pass
+print(tp)
+" 2>/dev/null || echo "0")
+
+# 리포트 수
+REPORT_COUNT=$(ls -1 "$TRACK_DIR/reports/"*_redos_${DATE}_report.md 2>/dev/null | wc -l | tr -d ' ')
+
+# Discord 완료 메시지 전송
+python3 - "$CONFIG" "$TARGET_COUNT" "$STAT_TOTAL" "$STAT_CRIT" "$STAT_HIGH" "$STAT_MED" "$STAT_LOW" \
+         "$FINAL_DONE" "$FINAL_PENDING" "$TP_TOTAL" "$REPORT_COUNT" "$DATE" <<'PYEOF'
+import json, sys, urllib.request, os
+
+config_path, target_count, stat_total, stat_crit, stat_high, stat_med, stat_low, \
+    llm_done, llm_pending, tp_total, report_count, date = sys.argv[1:13]
+
+try:
+    with open(config_path) as f:
+        config = json.load(f)
+except:
+    config = {}
+
+webhook = config.get("general", {}).get("notification", {}).get("discord_webhook", "")
+if not webhook or webhook == "YOUR_DISCORD_WEBHOOK_URL":
+    print("[discord] 웹훅 미설정 — 스킵")
+    sys.exit(0)
+
+github_repo = config.get("general", {}).get("github_repo", "baejaeho18/autoBounty")
+
+# 상태 이모지
+if int(tp_total) > 0:
+    status_emoji = ":rotating_light:"
+    status_text = f"**{tp_total}건의 실제 ReDoS 취약점 확인!**"
+    color = 0xFF0000
+elif int(stat_crit) + int(stat_high) > 0:
+    status_emoji = ":warning:"
+    status_text = "정적 분석에서 후보 발견 (LLM 검증 필요)"
+    color = 0xFF8C00
+else:
+    status_emoji = ":white_check_mark:"
+    status_text = "특이사항 없음"
+    color = 0x00CC00
+
+embed = {
+    "title": f"{status_emoji} ReDoS Scanner 완료 ({date})",
+    "description": status_text,
+    "color": color,
+    "fields": [
+        {
+            "name": ":mag: 정적 분석",
+            "value": (
+                f"스캔 레포: **{target_count}개**\n"
+                f"총 탐지: **{stat_total}건**\n"
+                f"CRITICAL: {stat_crit} / HIGH: {stat_high} / MEDIUM: {stat_med} / LOW: {stat_low}"
+            ),
+            "inline": False,
+        },
+        {
+            "name": ":robot: LLM 정밀 분석",
+            "value": (
+                f"완료: **{llm_done}개** 프로젝트\n"
+                f"미완료: {llm_pending}개\n"
+                f"TP (진양성): **{tp_total}건**"
+            ),
+            "inline": False,
+        },
+        {
+            "name": ":page_facing_up: 리포트",
+            "value": f"생성: **{report_count}건**" + (
+                f"\n[리포트 보기](https://github.com/{github_repo}/tree/redos-scanner/data/track4/reports)"
+                if int(report_count) > 0 else ""
+            ),
+            "inline": False,
+        },
+    ],
+    "footer": {"text": "autoBounty ReDoS Scanner"},
+}
+
+payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+req = urllib.request.Request(webhook, data=payload, headers={"Content-Type": "application/json"})
+try:
+    urllib.request.urlopen(req, timeout=10)
+    print("[discord] 파이프라인 완료 알림 전송 완료")
+except Exception as e:
+    print(f"[discord] 완료 알림 전송 실패: {e}", file=sys.stderr)
+PYEOF
+
+log "═══════════════════════════════════════════"
+log "Track 4 ReDoS 파이프라인 전체 완료 + Discord 알림"
+log "═══════════════════════════════════════════"
